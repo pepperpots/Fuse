@@ -1,0 +1,6 @@
+[submodule "libfuse/external/easyloggingpp"]
+	path = libfuse/external/easyloggingpp
+	url = https://github.com/zuhd-org/easyloggingpp.git
+[submodule "external/cxxopts"]
+	path = external/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git
