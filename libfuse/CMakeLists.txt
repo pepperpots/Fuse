@@ -19,7 +19,15 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 add_library(fuse SHARED
 	src/config.cpp
 	src/fuse.cpp
+	src/case.cpp
+	src/profile.cpp
+	src/instance.cpp
 )
+
+find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
+if(NOT (EXISTS "${AFTERMATH_INCLUDE_DIR}/aftermath/core/multi_event_set.h" OR EXISTS "aftermath/core/multi_event_set.h"))
+	message(FATAL_ERROR "Cannot find Aftermath headers. Provide non-standard aftermath include directory via the CMake parameter AFTERMATH_INCLUDE_DIR" )
+ENDIF()
 
 set(build_static_lib ON CACHE BOOL "Build static lib" FORCE)
 #set(CMAKE_CXX_STANDARD 11)
@@ -29,8 +37,9 @@ unset(build_static_lib)
 
 target_include_directories(fuse PRIVATE
 	external/easyloggingpp/src
+	${AFTERMATH_INCLUDE_DIR}
 	include
 )
 
-target_link_libraries(fuse easyloggingpp)
+target_link_libraries(fuse easyloggingpp ${AFTERMATH_LIB})
 

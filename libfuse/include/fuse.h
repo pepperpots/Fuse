@@ -1,47 +1,23 @@
-#ifndef FUSE_EXPERIMENT_H
-#define FUSE_EXPERIMENT_H
+#ifndef FUSE_H
+#define FUSE_H
 
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "fuse_types.h"
+
+#include "instance.h"
+#include "case.h"
+#include "profile.h"
 
 namespace Fuse {
 
 	/*
-	* TYPES
-	*/
-
-	typedef std::string Event;
-	typedef std::vector<Event> Event_set;
-
-	struct Sequence_part {
-		Event_set overlapping;
-		Event_set additional;
-	};
-
-	typedef std::vector<Sequence_part> Combination_sequence;
-
-	/*
-	* Free functions
+	* Global functions
 	*/
 
 	void initialize(std::string target_dir, bool debug);
-
-	/*
-	* Most Fuse functions apply to processing a target benchmark (directory)
-	*/
-
-	class Target {
-
-		public:
-
-			Target(std::string target_dir);
-			~Target();
-
-			// execute_sequence
-			// combine_sequence
-			// execute_references
-
-	};
 
 }
 
