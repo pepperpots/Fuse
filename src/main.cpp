@@ -36,11 +36,15 @@ auto setup_options(char* argv){
 	std::vector<std::string> utility_options;
 
 	auto main_options_group = options.group_help("Main").options;
-	for(auto opt : main_options_group)
+	for(auto opt : main_options_group){
 		main_options.push_back(opt.s);
+		main_options.push_back(opt.l);
+	}
 	auto utility_options_group = options.group_help("Utility").options;
-	for(auto opt : utility_options_group)
+	for(auto opt : utility_options_group){
 		utility_options.push_back(opt.s);
+		utility_options.push_back(opt.l);
+	}
 
 	return std::make_tuple(options, main_options, utility_options);
 
