@@ -51,6 +51,23 @@ void ::Fuse::Execution_profile::load_from_tracefile(bool load_communication_matr
 
 }
 
+void ::Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
+	
+	auto symbol_iter = this->instances.find(instance->symbol);
+
+	if(symbol_iter == this->instances.end()){
+
+		std::vector<::Fuse::Instance_p> symbol_instances = {instance};
+		this->instances.insert(std::make_pair(instance->symbol,symbol_instances));
+
+	} else {
+
+		symbol_iter->second.push_back(instance);
+
+	}
+
+}
+
 void ::Fuse::Execution_profile::parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix){
 	this->parse_openstream_instances(mes, load_communication_matrix);
 	this->parse_openmp_instances(mes);
@@ -71,7 +88,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 
 	unsigned int total_num_single_events = 0;
 	unsigned int total_num_comm_events = 0;
-	for(struct event_set* es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
+	for(auto es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
 		total_num_single_events += es->num_single_events;
 		total_num_comm_events += es->num_comm_events;
 	}
@@ -130,6 +147,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 		
 		Instance_p runtime_instance(new Instance());
 		std::vector<int> label = {(-cpu_idx - 1)};
+		runtime_instance->label = label;
 		runtime_instance->cpu = cpu_idx;
 		runtime_instance->symbol = "runtime";
 		runtime_instance->start = 0;
@@ -154,7 +172,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 
 		struct single_event* se = all_single_events[i];
 
-		// update the states on this cpu
+		// Check if we have some state information still to allocate prior to this single event
 		this->allocate_cycles_in_state(mes,
 			se,
 			next_state_event_idx_by_cpu,
@@ -163,6 +181,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 			partially_traced_state_time_by_cpu,
 			runtime_starts_by_cpu);
 
+		// Check if there is any data communications still to allocate prior to this single event
 		this->update_data_accesses(mes,
 			se,
 			data_accesses,
@@ -171,6 +190,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 			next_comm_event_idx,
 			total_num_comm_events);
 
+		// Process the single event (task creation/start/end etc) into the appropriate data structures
 		this->process_next_openstream_single_event(se,
 			top_level_frame,
 			ready_instances_by_frame,
@@ -180,11 +200,14 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 			ces_hints_per_cpu,
 			top_level_instance_counter);
 			
-
-
+	}
+	
+	// Add the runtime instances simply as instances with the symbol 'runtime' to the dataset
+	for(int cpu_idx = mes->min_cpu; cpu_idx <= mes->max_cpu; cpu_idx++){
+		this->add_instance(runtime_instances_by_cpu.at(cpu_idx));
 	}
 
-	LOG(DEBUG) << "Finished iterating single events!";
+	LOG(DEBUG) << "Finished processing OpenStream trace events.";
 	return;
 
 }
@@ -200,7 +223,7 @@ void ::Fuse::Execution_profile::gather_sorted_openstream_parsing_events(
 		std::vector<struct comm_event*>& all_comm_events
 		){
 	
-	for(struct event_set* es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
+	for(auto es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
 		for(unsigned int idx = 0; idx < es->num_single_events; idx++){
 			all_single_events.push_back(&es->single_events[idx]);
 		}
@@ -395,6 +418,128 @@ void ::Fuse::Execution_profile::update_data_accesses(
 	}
 
 }
+
+void ::Fuse::Execution_profile::process_openstream_instance_creation(
+		struct single_event* se,
+		struct frame* top_level_frame,
+		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
+		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		unsigned int& top_level_instance_counter
+		){
+
+	::Fuse::Instance_p instance(new Instance());
+
+	// Set the appropriate label for this newly created instance
+
+	if(se->active_frame == top_level_frame){
+		//std::vector<int> label = {top_level_instance_counter++};
+		instance->label = {(int) top_level_instance_counter++};
+
+	} else {
+		// The parent instance data structure maintains the correct rank of child instances
+		auto executing_iter = executing_instances_by_cpu.find(se->event_set->cpu);
+		instance->label = executing_iter->second.second;
+
+		// Update the rank for my later siblings 
+		executing_iter->second.second.at(executing_iter->second.second.size()-1)++;
+	}
+	
+	// Add the instance to the queue of unstarted instances
+	// (We do not yet know which CPU this instance will be executed on) via the what frame
+	auto frame_iter = ready_instances_by_frame.find(se->what->addr);
+	if(frame_iter == ready_instances_by_frame.end()){
+
+		// This is the first unstarted instance produced by the parent instance
+		// create the queue for the new frame and add it
+
+		std::queue<::Fuse::Instance_p> instances_waiting_for_execution({instance});
+		ready_instances_by_frame.insert(std::make_pair(se->what->addr, instances_waiting_for_execution));
+
+	} else {
+
+		// Add this instance as an one that is waiting to begin execution
+		frame_iter->second.push(instance);
+	}
+
+	return;
+
+}
+
+void ::Fuse::Execution_profile::process_openstream_instance_start(
+		struct single_event* se,
+		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
+		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu
+		){
+
+	// Find the instance that I have just started
+	auto frame_iter = ready_instances_by_frame.find(se->what->addr);
+	if(frame_iter == ready_instances_by_frame.end())
+		LOG(ERROR) << "Parsing tracefile error: Cannot find a waiting (created) instance for a TEXEC_START."; // Has the OpenStream TSC fix been implemented?
+
+	// Get the waiting instance and remove it from queue
+	auto instances_waiting_for_execution = frame_iter->second;
+	::Fuse::Instance_p my_instance = instances_waiting_for_execution.front();
+	instances_waiting_for_execution.pop();
+	frame_iter->second = instances_waiting_for_execution;
+
+	// Give it its execution details
+	::Fuse::Symbol symbol("unknown_symbol_name");
+	if(se->active_task->symbol_name != nullptr){
+		symbol = se->active_task->symbol_name;
+		std::replace(symbol.begin(), symbol.end(), ',', '_');
+	}
+		
+	my_instance->symbol = symbol; 
+	my_instance->cpu = se->event_set->cpu;
+	my_instance->start = se->time;
+	my_instance->is_gpu_eligible = se->what->is_gpu_eligible;
+
+	// Set the next child label for this CPU to be this instance's label, with an appended 0 (for the first child rank)
+	auto label_for_potential_child = my_instance->label; // calls copy constructor
+	label_for_potential_child.push_back(0);
+	 
+	auto executing_pair = std::make_pair(my_instance,label_for_potential_child);
+	executing_instances_by_cpu.insert(std::make_pair(se->event_set->cpu,executing_pair));
+
+	// Now that the instance has been added as executing, update all of the currently executing instances to have updated realised parallelism
+	// TODO this should be a much more sophisticated metric for parallelism
+	unsigned int num_executing_instances = executing_instances_by_cpu.size();
+	for(auto executing_iter : executing_instances_by_cpu){
+		auto instance = executing_iter.second.first;
+		instance->append_max_event_value("realised_parallelism",num_executing_instances);
+	}
+
+}
+
+void ::Fuse::Execution_profile::process_openstream_instance_end(
+		struct single_event* se,
+		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		std::vector<uint64_t>& runtime_starts_by_cpu,
+		std::vector<int>& ces_hints_per_cpu
+		){
+
+	// Find the executing instance on this CPU that has just ended
+	auto executing_iter = executing_instances_by_cpu.find(se->event_set->cpu);
+	if(executing_iter == executing_instances_by_cpu.end())
+		LOG(FATAL) << "Parsing tracefile error: Encountered a TEXEC_END trace event, but cannot find an executing task on the CPU (" << se->event_set->cpu << "). Aborting.";
+
+	// Mark when it ended
+	auto my_instance = executing_iter->second.first;
+	my_instance->end = se->time;
+
+	// Remove it from the executing list, also removing the label required to create its children
+	executing_instances_by_cpu.erase(executing_iter);
+
+	// Calculate the instance's counter values and append them
+	this->interpolate_and_append_counter_values(my_instance,my_instance->start,my_instance->end,se->event_set,ces_hints_per_cpu.at(se->event_set->cpu));
+	
+	// Add the instance to this execution profile
+	this->add_instance(my_instance);
+
+	// Save the start time for the following runtime-execution period
+	runtime_starts_by_cpu.at(se->event_set->cpu) = se->time;
+
+}
 			
 void ::Fuse::Execution_profile::process_next_openstream_single_event(
 		struct single_event* se,
@@ -418,39 +563,11 @@ void ::Fuse::Execution_profile::process_next_openstream_single_event(
 	switch(se->type){
 		case SINGLE_TYPE_TCREATE: {
 
-			Instance_p instance(new Instance());
-
-			// Set the appropriate label for this newly created instance
-
-			if(se->active_frame == top_level_frame){
-				//std::vector<int> label = {top_level_instance_counter++};
-				instance->label = {top_level_instance_counter++};
-
-			} else {
-				// The parent instance data structure maintains the correct rank of child instances
-				auto executing_iter = executing_instances_by_cpu.find(se->event_set->cpu);
-				instance->label = executing_iter->second.second;
-
-				// Update the rank for my later siblings 
-				executing_iter->second.second.at(executing_iter->second.second.size()-1)++;
-			}
-			
-			// Add the instance to the queue of unstarted instances
-			// (We do not yet know which CPU this instance will be executed on) via the what frame
-			auto frame_iter = ready_instances_by_frame.find(se->what->addr);
-			if(frame_iter == ready_instances_by_frame.end()){
-
-				// This is the first unstarted instance produced by the parent instance
-				// create the queue for the new frame and add it
-
-				std::queue<Instance_p> instances_waiting_for_execution({instance});
-				ready_instances_by_frame.insert(std::make_pair(se->what->addr, instances_waiting_for_execution));
-
-			} else {
-
-				// Add this instance as an one that is waiting to begin execution
-				frame_iter->second.push(instance);
-			}
+			this->process_openstream_instance_creation(se,
+				top_level_frame,
+				ready_instances_by_frame,
+				executing_instances_by_cpu,
+				top_level_instance_counter);
 
 			break;
 		}
@@ -463,77 +580,55 @@ void ::Fuse::Execution_profile::process_next_openstream_single_event(
 				uint64_t start_time = runtime_starts_by_cpu.at(single_event_cpu);
 				uint64_t end_time = se->time;
 
-				// the start time is the end time of the previous one, so we can just use the same hint, and update it if necessary
+				// The start time is the end time of the previous one, so we can just use the same hint, and update it if necessary
 				this->interpolate_and_append_counter_values(runtime_instance,
 					start_time,
 					end_time,
 					se->event_set,
 					ces_hints_per_cpu.at(single_event_cpu));
 			}
-
-			// find the first task in the queue of waiting tasks in the map by active_frame ? or via *what*?
-			// this is my task
-			//frame_iter = ready_tasks_by_frame.find(se->active_frame->addr);
-			frame_iter = ready_tasks_by_frame.find(se->what->addr);
-			if(frame_iter == ready_tasks_by_frame.end())
-				LOG(ERROR) << "Parsing tracefile error: Cannot find a waiting task for my TEXEC_START. Has the OpenStream TSC offset fix been implemented?";
-
-			// Remove from queue
-			std::queue<Execution_unit_p> tasks_waiting_for_execution = frame_iter->second;
-			Execution_unit_p my_task = tasks_waiting_for_execution.front();
-			tasks_waiting_for_execution.pop();
-			frame_iter->second = tasks_waiting_for_execution;
-
-			// Give it its execution details
-			if(se->active_task->symbol_name == nullptr){
-				std::string symbol("unknown_symbol_name");
-				my_task->symbol = symbol; 
-			} else {
-				std::string symbol(se->active_task->symbol_name);
-				std::replace(symbol.begin(), symbol.end(), ',', '_');
-				my_task->symbol = symbol; 
-			}
-
-			my_task->cpu = se->event_set->cpu;
-			my_task->start = se->time;
-
-			my_task->is_gpu_eligible = se->what->is_gpu_eligible;
-
-			// This task is now the only one executing on this CPU, therefore set the next child label for this CPU to be this task's label + 1 depth 
 			
-			int* my_task_label = my_task->task_label.get();
-			int my_task_depth = my_task->task_tree_depth;
-			int* label_for_potential_child = new int[my_task_depth+2]; // One for the next depth in the tree, and one for the terminating character
-		   
-			std::copy(my_task_label, my_task_label+my_task_depth, label_for_potential_child);
-			label_for_potential_child[my_task_depth] = 0;
-			label_for_potential_child[my_task_depth+1] = -1;
-
-			std::pair<Execution_unit_p,int*> executing_task = std::make_pair(my_task,label_for_potential_child);
-			executing_tasks_by_cpu.insert(std::make_pair(se->event_set->cpu,executing_task));
-
-			// Now that the task has been added as executing, update all of the currently executing tasks to have realised parallelism
-			unsigned int num_executing_tasks = executing_tasks_by_cpu.size();
-			for(executing_iter = executing_tasks_by_cpu.begin(); executing_iter != executing_tasks_by_cpu.end(); executing_iter++){
-				Execution_unit_p task = executing_iter->second.first;
-				task->append_event_value_nodecrease("realised_parallelism",num_executing_tasks);
-			}
-
-			//LOG(DEBUG) << se->time << ":" << se->event_set->cpu << ":TSTART " <<  se->what->addr;
-
+			this->process_openstream_instance_start(se,
+				ready_instances_by_frame,
+				executing_instances_by_cpu);
 
 			break;
 		}
 		case SINGLE_TYPE_TEXEC_END: {
+
+			this->process_openstream_instance_end(se,
+					executing_instances_by_cpu,
+					runtime_starts_by_cpu,
+					ces_hints_per_cpu);
 			
 			break;
 		}
 		case SINGLE_TYPE_SYSCALL: {
+			
+			// Increment the instance (or runtime-instance) value for this syscall
+
+			std::stringstream ss;
+			ss << "syscall_" << se->sub_type_id;
+
+			auto executing_iter = executing_instances_by_cpu.find(single_event_cpu);
+			if(executing_iter != executing_instances_by_cpu.end())
+				executing_iter->second.first->append_event_value(ss.str(),1,true);
+			else
+				runtime_instances_by_cpu.at(se->event_set->cpu)->append_event_value(ss.str(),1,true);
 
 			break;
 		}
 	}
 	
+}
+
+void ::Fuse::Execution_profile::interpolate_and_append_counter_values(
+	::Fuse::Instance_p instance,
+	uint64_t start_time,
+	uint64_t end_time,
+	struct event_set* es,
+	int& start_index_hint){
+
 
 }
 
