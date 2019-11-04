@@ -1,16 +1,16 @@
-#ifndef FUSE_CASE_H
-#define FUSE_CASE_H
+#ifndef FUSE_TARGET_H
+#define FUSE_TARGET_H
 
 #include <string>
 
 namespace Fuse {
 
-	class Case {
+	class Target {
 
 		public:
 
-			Case(std::string dir);
-			~Case();
+			Target(std::string dir);
+			~Target();
 
 			// execute_sequence
 			// combine_sequence

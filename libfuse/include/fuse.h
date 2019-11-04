@@ -8,7 +8,7 @@
 #include "fuse_types.h"
 
 #include "instance.h"
-#include "case.h"
+#include "target.h"
 #include "profile.h"
 
 namespace Fuse {

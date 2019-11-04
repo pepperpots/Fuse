@@ -19,7 +19,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 add_library(fuse SHARED
 	src/config.cpp
 	src/fuse.cpp
-	src/case.cpp
+	src/target.cpp
 	src/profile.cpp
 	src/instance.cpp
 )

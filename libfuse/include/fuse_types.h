@@ -7,7 +7,7 @@
 
 namespace Fuse {
 
-	class Case;
+	class Target;
 	class Instance;
 	class Execution_profile;
 

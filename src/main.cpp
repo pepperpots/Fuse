@@ -14,7 +14,7 @@ auto setup_options(char* argv){
 		("debug", "Enable DEBUG logging.");
 
 	options.add_options("Main")
-		("f,case_folder", "Target Fuse case folder (containing fuse.json).", cxxopts::value<std::string>())
+		("f,target_folder", "Target Fuse target folder (containing fuse.json).", cxxopts::value<std::string>())
 		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal'.", cxxopts::value<unsigned int>())
 		("m,combine_sequence", "Combine the sequence. Conditioned by 'strategies' and 'minimal'.")
 		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'minimal', and 'accuracy_metric'.")
