@@ -84,6 +84,25 @@ bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
 	return (a_depth < b_depth);
 }
 
+// If symbols is empty (or not provided), then this will return all instances for all symbols
+std::vector<::Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<::Fuse::Symbol> symbols = std::vector<::Fuse::Symbol>()){
+
+	std::vector<::Fuse::Instance_p> all_instances;
+
+	for(auto symbol_pair : this->instances){
+
+		if(symbols.size() > 0)
+			if(std::find(symbols.begin(), symbols.end(), symbol_pair.first) == symbols.end())
+				continue;
+
+		all_instances.reserve(all_instances.size() + std::distance(symbol_pair.second.begin(),symbol_pair.second.end()));
+		all_instances.insert(all_instances.end(), symbol_pair.second.begin(), symbol_pair.second.end());
+	}
+
+	return all_instances;
+
+}
+
 void Fuse::Execution_profile::print_to_file(std::string output_file){
 	
 	spdlog::info("Dumping the execution profile {} to output file {}.", this->tracefile, output_file);
@@ -101,13 +120,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 			header_ss << "," << event;
 		out << header_ss.str() << "\n";
 
-		std::vector<::Fuse::Instance_p> all_instances;
-
-		for(auto symbol_pair : this->instances){
-			all_instances.reserve(all_instances.size() + std::distance(symbol_pair.second.begin(),symbol_pair.second.end()));
-			all_instances.insert(all_instances.end(), symbol_pair.second.begin(), symbol_pair.second.end());
-		}
-
+		std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
 		std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 	
 		for(auto instance : all_instances){
@@ -143,6 +156,98 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 }
 
+/* Avoiding stringstream for efficiency
+*  TODO: allow for sparse adjacency matrix
+*/
+void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file){
+
+	spdlog::info("Dumping the data-dependency DAG as a dense adjacency matrix to {}", output_file);
+
+	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
+	
+	spdlog::trace("Dumping the instance dependencies for {} instances, of which {} have dependencies.", all_instances.size(), this->instance_dependencies.size());
+
+	std::ofstream dense_adj(output_file);
+
+	// Prior to the adjacency matrix in the file, the number of instances and each label is provided
+	char numstr[16];
+	sprintf(numstr, "%lu", all_instances.size());
+
+	std::string filestring;
+	filestring.reserve(all_instances.size()*2);
+
+	filestring += numstr;
+	filestring += "\n";
+
+	for(auto instance : all_instances){
+		filestring += ::Fuse::Util::vector_to_string(instance->label,"-");
+		filestring += "\n";
+	}
+	
+	dense_adj << filestring;
+
+	// Now print the adjacency matrix
+	for(int consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
+
+		filestring = "";
+
+		// For each consumer, find the indexes of its producers in the all_instances list...
+		auto consumer_instance = all_instances.at(consumer_idx);
+		auto depend_iter = this->instance_dependencies.find(consumer_instance);
+
+		if(depend_iter == this->instance_dependencies.end()){
+			// There are no dependencies for this instance
+
+			for(int potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
+				filestring += "0,";
+			}
+			filestring.pop_back(); // get rid of the trailing delimiter
+			filestring += "\n";
+
+			dense_adj << filestring;
+			continue;
+
+		}
+
+		std::set<std::size_t> ordered_producer_indexes_for_this_consumer;
+		for(auto producer_instance : depend_iter->second.first){
+			auto producer_ordered_index = std::find(all_instances.begin(), all_instances.end(), producer_instance) - all_instances.begin();
+			ordered_producer_indexes_for_this_consumer.insert(producer_ordered_index);
+		}
+
+		// Go through all the instances that the consumer might depend on
+		for(int potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
+	
+			// I am iterating the potential_producers in order, so check if this one is the next in my ordered producer list		
+
+			if(ordered_producer_indexes_for_this_consumer.size() > 0
+					&& potential_producer_idx == *ordered_producer_indexes_for_this_consumer.begin()){
+
+				filestring += "1,";
+				
+				// pop the front of the set so the next producer is always the front
+				ordered_producer_indexes_for_this_consumer.erase(ordered_producer_indexes_for_this_consumer.begin());
+
+			} else {
+				filestring += "0,";
+			}
+
+		}
+		filestring.pop_back(); // get rid of the trailing delimiter
+		filestring += "\n";
+
+		dense_adj << filestring;
+	}
+
+	dense_adj.close();
+
+}
+
+// TODO
+void Fuse::Execution_profile::dump_instance_dependencies_graphviz(std::string filename){
+
+}
 
 void Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
 	
@@ -280,7 +385,8 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 			all_comm_events,
 			executing_instances_by_cpu,
 			next_comm_event_idx,
-			total_num_comm_events);
+			total_num_comm_events,
+			load_communication_matrix);
 
 		// Process the single event (task creation/start/end etc) into the appropriate data structures
 		this->process_next_openstream_single_event(se,
@@ -300,6 +406,10 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 	}
 
 	spdlog::debug("Finished processing OpenStream trace events.");
+
+	if(load_communication_matrix)
+		this->load_openstream_instance_dependencies(all_comm_events, data_accesses);
+
 	return;
 
 }
@@ -439,7 +549,8 @@ void Fuse::Execution_profile::update_data_accesses(
 		std::vector<struct comm_event*>& all_comm_events,
 		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		unsigned int& next_comm_event_idx,
-		unsigned int total_num_comm_events){
+		unsigned int total_num_comm_events,
+		bool load_communication_matrix){
 
 	spdlog::trace("Updating OpenStream data accesses prior to single event at timestamp {}", se->time);
 
@@ -470,11 +581,13 @@ void Fuse::Execution_profile::update_data_accesses(
 					
 					Instance_p responsible_instance = executing_iter->second.first;
 
-					// add the access to the interval map to later determine dependencies
-					std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
-					access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
+					if(load_communication_matrix){
+						// add the access to the interval map to later determine dependencies
+						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
+						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
-					data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+						data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+					}
 
 					// Add the communication data to the instance
 					std::stringstream ss;
@@ -495,11 +608,13 @@ void Fuse::Execution_profile::update_data_accesses(
 					
 					Instance_p responsible_instance = executing_iter->second.first;
 
-					// add the access to the interval map to later determine dependencies
-					std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
-					access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
+					if(load_communication_matrix){
+						// add the access to the interval map to later determine dependencies
+						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
+						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
-					data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+						data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+					}
 					
 					std::stringstream ss;
 					ss << "data_write_" << ce->numa_dist << "_hops";
@@ -741,6 +856,82 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 	
 }
 
+template <typename Compare>
+void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<struct comm_event*> all_comm_events,
+		::boost::icl::interval_map<
+			uint64_t,
+			std::set<std::pair<unsigned int, ::Fuse::Instance_p>, Compare>
+			>& data_accesses
+		){
+
+	spdlog::trace("Loading openstream instance dependencies.");
+
+	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
+	
+	spdlog::trace("There are {} data intervals that are accessed.", data_accesses.iterative_size());
+
+	// iterate all the data, and create the links for dependent instances
+	// Only record the producer instances for each *consumer*
+	// Does *not* record the consumer instances for a given producer
+	for(auto interval_iter : data_accesses){
+
+		// this set is ordered by instance start time
+		auto accesses = interval_iter.second;
+
+		std::vector<::Fuse::Instance_p> consumer_instances;
+		std::vector<::Fuse::Instance_p> producer_instances;
+
+		for(auto interval_access_iter : accesses){
+			switch(interval_access_iter.first){
+				case COMM_TYPE_DATA_READ:
+					consumer_instances.push_back(interval_access_iter.second);
+					break;
+				case COMM_TYPE_DATA_WRITE:
+					producer_instances.push_back(interval_access_iter.second);
+					break;
+			};
+		}
+
+		std::stringstream ss;
+		ss << interval_iter.first;
+		auto interval_string = ss.str();
+
+		spdlog::trace("There are {} producer instances and {} consumer instances for memory location interval {}.", producer_instances.size(), consumer_instances.size(), interval_string);
+	
+		unsigned int previous_producer_idx = 0;
+		for(auto consumer : consumer_instances){
+
+			if(producer_instances.size() == 0){
+				spdlog::warn("The interval {} was read by a consumer instance, but no producer instance wrote to this interval.", interval_string);
+				continue;
+			}
+
+			// As I consumed from the previous producer, iterate forward to get the one immediately preceeding this read
+			while(previous_producer_idx+1 < producer_instances.size() and producer_instances.at(previous_producer_idx+1)->end < consumer->start)
+				previous_producer_idx++;
+
+			auto producer = producer_instances.at(previous_producer_idx);
+
+			auto instance_dependency_iter = this->instance_dependencies.find(consumer);
+			if(instance_dependency_iter == instance_dependencies.end()){
+				std::set<::Fuse::Instance_p> this_consumer_depends_on;
+				std::set<::Fuse::Instance_p> this_consumer_produces_for;
+				this_consumer_depends_on.insert(producer);
+
+				this->instance_dependencies[consumer] = std::make_pair(this_consumer_depends_on, this_consumer_produces_for);
+			} else {
+				instance_dependency_iter->second.first.insert(producer);
+			}
+
+		}
+
+	}
+
+	spdlog::trace("Finished loading openstream instance dependencies.");
+
+}
+
 void Fuse::Execution_profile::interpolate_and_append_counter_values(
 		::Fuse::Instance_p instance,
 		uint64_t start_time,
@@ -756,14 +947,22 @@ void Fuse::Execution_profile::parse_openmp_instances(struct multi_event_set* mes
 
 // define an explicit implementation of the templated update_data_accesses function for our comparator
 template void Fuse::Execution_profile::update_data_accesses<data_access_time_compare>(
-		struct multi_event_set* mes,
-		struct single_event* se,
-		::boost::icl::interval_map<
-			uint64_t,
-			std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
-			>& data_accesses,
-		std::vector<struct comm_event*>& all_comm_events,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
-		unsigned int& next_comm_event_idx,
-		unsigned int total_num_comm_events);
+	struct multi_event_set* mes,
+	struct single_event* se,
+	::boost::icl::interval_map<
+		uint64_t,
+		std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
+		>& data_accesses,
+	std::vector<struct comm_event*>& all_comm_events,
+	std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+	unsigned int& next_comm_event_idx,
+	unsigned int total_num_comm_events,
+	bool load_communication_matrix);
 
+template void Fuse::Execution_profile::load_openstream_instance_dependencies<data_access_time_compare>(
+	std::vector<struct comm_event*> all_comm_events,
+	::boost::icl::interval_map<
+		uint64_t,
+		std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
+		>& data_accesses
+	);

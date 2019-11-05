@@ -7,6 +7,7 @@
 
 #include <map>
 #include <queue>
+#include <set>
 #include <string>
 
 struct multi_event_set;
@@ -28,6 +29,9 @@ namespace Fuse {
 		private:
 			::Fuse::Event_set events;
 
+			// if loaded, each instance maps to the pair [instances that it depends on, instances that depend on it]
+			std::map<::Fuse::Instance_p, std::pair<std::set<::Fuse::Instance_p>,std::set<::Fuse::Instance_p> > > instance_dependencies;
+
 		// class functions
 		public:
 
@@ -36,7 +40,11 @@ namespace Fuse {
 
 			void load_from_tracefile(bool load_communication_matrix);
 			void print_to_file(std::string output_file);
+			void dump_instance_dependencies(std::string output_file);
+			void dump_instance_dependencies_graphviz(std::string filename);
+
 			::Fuse::Event_set get_unique_events();
+			std::vector<::Fuse::Instance_p> get_instances(const std::vector<::Fuse::Symbol> symbols);
 
 		private:
 
@@ -46,6 +54,14 @@ namespace Fuse {
 			void parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix);
 			void parse_openstream_instances(struct multi_event_set* mes, bool load_communication_matrix);
 			void parse_openmp_instances(struct multi_event_set* mes);
+
+			template <typename Compare>
+			void load_openstream_instance_dependencies(std::vector<struct comm_event*> all_comm_events,
+				::boost::icl::interval_map<
+					uint64_t,
+					std::set<std::pair<unsigned int, ::Fuse::Instance_p>, Compare>
+					>& data_accesses
+				);
 
 			void gather_sorted_openstream_parsing_events(
 				struct multi_event_set* mes,
@@ -60,7 +76,7 @@ namespace Fuse {
 				std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 				std::vector<uint64_t>& partially_traced_state_time_by_cpu,
 				std::vector<uint64_t>& runtime_starts_by_cpu
-			);
+				);
 
 			template <typename Compare>
 			void update_data_accesses(
@@ -73,7 +89,8 @@ namespace Fuse {
 				std::vector<struct comm_event*>& all_comm_events,
 				std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 				unsigned int& next_comm_event_idx,
-				unsigned int total_num_comm_events);
+				unsigned int total_num_comm_events,
+				bool load_communication_matrix);
 		
 			void process_next_openstream_single_event(
 				struct single_event* se,
@@ -111,7 +128,6 @@ namespace Fuse {
 				int& start_index_hint);
 
 	};
-
 
 }
 
