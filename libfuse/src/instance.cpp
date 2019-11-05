@@ -36,3 +36,16 @@ void Fuse::Instance::append_max_event_value(::Fuse::Event event, int64_t value){
 	// do nothing if the current value is equal or creator than the new value
 
 }
+
+int64_t Fuse::Instance::get_event_value(::Fuse::Event event, bool& error){
+
+	auto event_iter = this->event_values.find(event);
+	if(event_iter == this->event_values.end()){
+		error = true;
+		return 0;
+	} 
+	
+	error = false;
+	return event_iter->second;
+
+}

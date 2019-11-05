@@ -1,10 +1,12 @@
 #include "profile.h"
 #include "instance.h"
+#include "util.h"
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "boost/icl/interval_map.hpp"
 
+#include <fstream>
 #include <queue>
 #include <set>
 #include <sstream>
@@ -52,6 +54,95 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 	delete mes;
 
 }
+
+::Fuse::Event_set Fuse::Execution_profile::get_unique_events(){
+
+	return this->events;
+
+}
+
+void Fuse::Execution_profile::add_event(::Fuse::Event event){
+
+	if(std::find(this->events.begin(),this->events.end(),event) == events.end())
+		this->events.push_back(event);
+
+}
+
+bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
+
+	int a_depth = a->label.size();
+	int b_depth = b->label.size();
+
+	for(unsigned int i=0; i<a_depth && i<b_depth; i++){
+		if(a->label.at(i) < b->label.at(i))
+			return true;
+		
+		if(b->label.at(i) < a->label.at(i))
+			return false;
+	}        
+
+	return (a_depth < b_depth);
+}
+
+void Fuse::Execution_profile::print_to_file(std::string output_file){
+	
+	spdlog::info("Dumping the execution profile {} to output file {}.", this->tracefile, output_file);
+
+	Event_set events = this->get_unique_events();
+	spdlog::debug("The execution profile contains events {}.", ::Fuse::Util::vector_to_string(events));
+
+	std::ofstream out(output_file);
+	
+	if(out.is_open()){
+
+		std::stringstream header_ss;
+		header_ss << "cpu,symbol,label,gpu_eligible";
+		for(auto event : events)
+			header_ss << "," << event;
+		out << header_ss.str() << "\n";
+
+		std::vector<::Fuse::Instance_p> all_instances;
+
+		for(auto symbol_pair : this->instances){
+			all_instances.reserve(all_instances.size() + std::distance(symbol_pair.second.begin(),symbol_pair.second.end()));
+			all_instances.insert(all_instances.end(), symbol_pair.second.begin(), symbol_pair.second.end());
+		}
+
+		std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
+	
+		for(auto instance : all_instances){
+
+			std::stringstream ss;
+
+			ss << instance->cpu << "," << instance->symbol << "," << ::Fuse::Util::vector_to_string(instance->label, "-");
+			ss << "," << instance->is_gpu_eligible;
+
+			for(auto event : events){
+
+				bool error = false;
+				int64_t value = instance->get_event_value(event,error);
+				
+				if(error == false) {
+					ss << "," << value;
+				} else {
+					ss << ",unknown";
+					//ss << ",0";
+				}
+
+			}
+			
+			out << ss.str() << "\n";
+
+		}
+
+		out.close();
+
+	} else {
+		spdlog::error("Could not open {} to dump instances to file.", output_file);
+	}
+
+}
+
 
 void Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
 	
@@ -265,6 +356,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 			
 			std::stringstream ss;
 			ss << "cycles_" << state_name;
+			this->add_event(ss.str());
 
 			// So first find what instance I should allocate the state cycles to
 
@@ -387,6 +479,8 @@ void Fuse::Execution_profile::update_data_accesses(
 					// Add the communication data to the instance
 					std::stringstream ss;
 					ss << "data_read_" << ce->numa_dist << "_hops";
+					this->add_event(ss.str());
+
 					responsible_instance->append_event_value(ss.str(),ce->size,true);
 
 					break;
@@ -409,6 +503,8 @@ void Fuse::Execution_profile::update_data_accesses(
 					
 					std::stringstream ss;
 					ss << "data_write_" << ce->numa_dist << "_hops";
+					this->add_event(ss.str());
+
 					responsible_instance->append_event_value(ss.str(),ce->size,true);
 					
 					break;
@@ -631,6 +727,7 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 
 			std::stringstream ss;
 			ss << "syscall_" << se->sub_type_id;
+			this->add_event(ss.str());
 
 			auto executing_iter = executing_instances_by_cpu.find(single_event_cpu);
 			if(executing_iter != executing_instances_by_cpu.end())

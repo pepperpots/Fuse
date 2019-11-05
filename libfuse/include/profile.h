@@ -5,9 +5,9 @@
 
 #include "boost/icl/interval_map.hpp"
 
+#include <map>
 #include <queue>
 #include <string>
-#include <map>
 
 struct multi_event_set;
 struct single_event;
@@ -19,19 +19,29 @@ namespace Fuse {
 
 	class Execution_profile {
 	
+		// class members
 		public:
 			std::map<::Fuse::Symbol, std::vector<::Fuse::Instance_p> > instances; // symbols mapped to instances of that symbol
 			std::string tracefile;
 			std::string benchmark;
 
+		private:
+			::Fuse::Event_set events;
+
+		// class functions
+		public:
+
 			Execution_profile(std::string tracefile, std::string benchmark_binary);
 			~Execution_profile();
 
 			void load_from_tracefile(bool load_communication_matrix);
+			void print_to_file(std::string output_file);
+			::Fuse::Event_set get_unique_events();
 
 		private:
 
 			void add_instance(::Fuse::Instance_p instance);
+			void add_event(::Fuse::Event event);
 
 			void parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix);
 			void parse_openstream_instances(struct multi_event_set* mes, bool load_communication_matrix);

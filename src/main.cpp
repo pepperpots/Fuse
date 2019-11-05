@@ -145,8 +145,8 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 	Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, benchmark));
 	execution_profile->load_from_tracefile(load_communication_matrix);
 
-	if(options_parse_result.count("dump_instances")){
-	}
+	if(options_parse_result.count("dump_instances"))
+		execution_profile->print_to_file(output_file);
 
 	if(options_parse_result.count("dump_dependency_matrix")){
 	}

@@ -25,6 +25,8 @@ namespace Fuse {
 			// Replacement will only occur if new value is greater than old
 			void append_max_event_value(::Fuse::Event event, int64_t value);
 
+			int64_t get_event_value(::Fuse::Event event, bool& error);
+
 			Instance();
 			~Instance();
 
