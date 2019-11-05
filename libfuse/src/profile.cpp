@@ -1,7 +1,8 @@
 #include "profile.h"
 #include "instance.h"
 
-#include "easylogging++.h"
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/basic_file_sink.h"
 #include "boost/icl/interval_map.hpp"
 
 #include <queue>
@@ -16,31 +17,32 @@ extern "C" {
 	#undef new
 }
 
-::Fuse::Execution_profile::Execution_profile(std::string tracefile, std::string benchmark)
+Fuse::Execution_profile::Execution_profile(std::string tracefile, std::string benchmark)
 	: tracefile(tracefile)
 	, benchmark(benchmark){
 
 }
-::Fuse::Execution_profile::~Execution_profile(){
+Fuse::Execution_profile::~Execution_profile(){
 }
 
-void ::Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix){
+void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix){
 
 	// load the instances from the tracefile into the map, using the aftermath calls
-	LOG(DEBUG) << "Loading tracefile: " << this->tracefile;
+	spdlog::info("Loading tracefile {}.", this->tracefile);
 	
   struct multi_event_set* mes = new multi_event_set;
   multi_event_set_init(mes);
 
 	off_t bytes_read = 0;
-	
+
 	if(read_trace_sample_file(mes, this->tracefile.c_str(), &bytes_read) != 0) {
-			LOG(ERROR) << "There was an error reading the tracefile '" << this->tracefile << "' after " << bytes_read << " bytes.";
-			return;
+		spdlog::error("There was an error reading the tracefile '{}' after {} bytes read.", this->tracefile, bytes_read);
+		exit(1);
 	}
 
 	if(debug_read_task_symbols(this->benchmark.c_str(),mes) != 0){
-			LOG(ERROR) << "There was an error reading symbols from the binary '" << this->benchmark << "'.";
+		spdlog::error("There was an error reading symbols from the binary '{}'.", this->benchmark);
+		exit(1);
 	}
 	
 	this->parse_instances_from_mes(mes, load_communication_matrix);
@@ -51,7 +53,7 @@ void ::Fuse::Execution_profile::load_from_tracefile(bool load_communication_matr
 
 }
 
-void ::Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
+void Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
 	
 	auto symbol_iter = this->instances.find(instance->symbol);
 
@@ -68,7 +70,7 @@ void ::Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
 
 }
 
-void ::Fuse::Execution_profile::parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix){
+void Fuse::Execution_profile::parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix){
 	this->parse_openstream_instances(mes, load_communication_matrix);
 	this->parse_openmp_instances(mes);
 }
@@ -82,9 +84,9 @@ struct data_access_time_compare {
 	}
 };
 
-void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set* mes, bool load_communication_matrix){
+void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set* mes, bool load_communication_matrix){
 
-	LOG(DEBUG) << "Parsing OpenStream instances.";
+	spdlog::debug("Parsing OpenStream instances.");
 
 	unsigned int total_num_single_events = 0;
 	unsigned int total_num_comm_events = 0;
@@ -93,8 +95,8 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 		total_num_comm_events += es->num_comm_events;
 	}
 
-	LOG(DEBUG) << "There are " << total_num_single_events << " OpenStream single events.";
-	LOG(DEBUG) << "There are " << total_num_comm_events << " OpenStream communication events.";
+	spdlog::debug("There are {} OpenStream single events.", total_num_single_events);
+	spdlog::debug("There are {} OpenStream communication events.", total_num_comm_events);
 
 	if(total_num_single_events == 0){
 		return;
@@ -132,11 +134,12 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 	for(auto se : all_single_events){
 		if(se->type == SINGLE_TYPE_TCREATE){
 			top_level_frame = se->active_frame;
+			break;
 		}
 	}
 
 	// As we iterate through the trace, keep a running counter event index for efficient searching
-	std::vector<int> ces_hints_per_cpu(mes->max_cpu, 0);
+	std::vector<int> ces_hints_per_cpu(mes->max_cpu+1, 0);
 
 	// Data structures for the 'runtime' instances, to track the behaviour of the 'non-work' execution
 	std::vector<::Fuse::Instance_p> runtime_instances_by_cpu;
@@ -168,9 +171,7 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 	unsigned int top_level_instance_counter = 0;
 	unsigned int next_comm_event_idx = 0;
 
-	for(int i=0; i<total_num_single_events; i++){
-
-		struct single_event* se = all_single_events[i];
+	for(auto se : all_single_events){
 
 		// Check if we have some state information still to allocate prior to this single event
 		this->allocate_cycles_in_state(mes,
@@ -207,17 +208,17 @@ void ::Fuse::Execution_profile::parse_openstream_instances(struct multi_event_se
 		this->add_instance(runtime_instances_by_cpu.at(cpu_idx));
 	}
 
-	LOG(DEBUG) << "Finished processing OpenStream trace events.";
+	spdlog::debug("Finished processing OpenStream trace events.");
 	return;
 
 }
 
 template <typename T>
 bool sort_struct_by_time(T one, T two){
-    return one->time < two->time;
+	return one->time < two->time;
 }
 
-void ::Fuse::Execution_profile::gather_sorted_openstream_parsing_events(
+void Fuse::Execution_profile::gather_sorted_openstream_parsing_events(
 		struct multi_event_set* mes,
 		std::vector<struct single_event*>& all_single_events,
 		std::vector<struct comm_event*>& all_comm_events
@@ -237,7 +238,7 @@ void ::Fuse::Execution_profile::gather_sorted_openstream_parsing_events(
 
 }
 
-void ::Fuse::Execution_profile::allocate_cycles_in_state(
+void Fuse::Execution_profile::allocate_cycles_in_state(
 		struct multi_event_set* mes,
 		struct single_event* se,
 		std::vector<unsigned int>& next_state_event_idx_by_cpu,
@@ -245,7 +246,9 @@ void ::Fuse::Execution_profile::allocate_cycles_in_state(
 		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		std::vector<uint64_t>& partially_traced_state_time_by_cpu,
 		std::vector<uint64_t>& runtime_starts_by_cpu
-	){
+		){
+
+	spdlog::trace("Allocating OpenStream state cycles prior to single event at timestamp {}",se->time);
 
 	unsigned int single_event_cpu = se->event_set->cpu;
 	unsigned int next_state_event_idx = next_state_event_idx_by_cpu.at(single_event_cpu);
@@ -329,10 +332,12 @@ void ::Fuse::Execution_profile::allocate_cycles_in_state(
 	// next state event idx might be the same, but we will have updated the partially_trace_state_time
 	next_state_event_idx_by_cpu.at(single_event_cpu) = next_state_event_idx;
 
+	spdlog::trace("Finished allocating OpenStream state cycles prior to single event at timestamp {}",se->time);
+
 }
 
 template <typename Compare>
-void ::Fuse::Execution_profile::update_data_accesses(
+void Fuse::Execution_profile::update_data_accesses(
 		struct multi_event_set* mes,
 		struct single_event* se,
 		::boost::icl::interval_map<
@@ -343,6 +348,8 @@ void ::Fuse::Execution_profile::update_data_accesses(
 		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		unsigned int& next_comm_event_idx,
 		unsigned int total_num_comm_events){
+
+	spdlog::trace("Updating OpenStream data accesses prior to single event at timestamp {}", se->time);
 
 	bool handling_comm = true;
 
@@ -364,8 +371,10 @@ void ::Fuse::Execution_profile::update_data_accesses(
 				case COMM_TYPE_DATA_READ: {
 
 					auto executing_iter = executing_instances_by_cpu.find(ce->dst_cpu);
-					if(executing_iter == executing_instances_by_cpu.end())
-						LOG(FATAL) << "There is no executing instance for the read communication event!";
+					if(executing_iter == executing_instances_by_cpu.end()){
+						spdlog::critical("There is no executing instance for a read communication event");
+						exit(1);
+					}
 					
 					Instance_p responsible_instance = executing_iter->second.first;
 
@@ -385,8 +394,10 @@ void ::Fuse::Execution_profile::update_data_accesses(
 				case COMM_TYPE_DATA_WRITE: {
 					
 					auto executing_iter = executing_instances_by_cpu.find(ce->src_cpu);
-					if(executing_iter == executing_instances_by_cpu.end())
-						LOG(FATAL) << "There is no executing instance for a write communication event!";
+					if(executing_iter == executing_instances_by_cpu.end()){
+						spdlog::critical("There is no executing instance for a write communication event");
+						exit(1);
+					}
 					
 					Instance_p responsible_instance = executing_iter->second.first;
 
@@ -417,20 +428,23 @@ void ::Fuse::Execution_profile::update_data_accesses(
 
 	}
 
+	spdlog::trace("Finished updating OpenStream data accesses prior to single event at timestamp {}", se->time);
+
 }
 
-void ::Fuse::Execution_profile::process_openstream_instance_creation(
-		struct single_event* se,
-		struct frame* top_level_frame,
-		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
-		unsigned int& top_level_instance_counter
-		){
+void Fuse::Execution_profile::process_openstream_instance_creation(
+			struct single_event* se,
+			struct frame* top_level_frame,
+			std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
+			std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+			unsigned int& top_level_instance_counter
+			){
+	
+	spdlog::trace("Processing an OpenStream TCREATE on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
 	::Fuse::Instance_p instance(new Instance());
 
 	// Set the appropriate label for this newly created instance
-
 	if(se->active_frame == top_level_frame){
 		//std::vector<int> label = {top_level_instance_counter++};
 		instance->label = {(int) top_level_instance_counter++};
@@ -443,7 +457,7 @@ void ::Fuse::Execution_profile::process_openstream_instance_creation(
 		// Update the rank for my later siblings 
 		executing_iter->second.second.at(executing_iter->second.second.size()-1)++;
 	}
-	
+
 	// Add the instance to the queue of unstarted instances
 	// (We do not yet know which CPU this instance will be executed on) via the what frame
 	auto frame_iter = ready_instances_by_frame.find(se->what->addr);
@@ -465,25 +479,28 @@ void ::Fuse::Execution_profile::process_openstream_instance_creation(
 
 }
 
-void ::Fuse::Execution_profile::process_openstream_instance_start(
+void Fuse::Execution_profile::process_openstream_instance_start(
 		struct single_event* se,
 		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
 		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu
 		){
 
+	spdlog::trace("Processing an OpenStream TEXEC_START on cpu {} at timestamp {}", se->event_set->cpu, se->time);
+
 	// Find the instance that I have just started
 	auto frame_iter = ready_instances_by_frame.find(se->what->addr);
 	if(frame_iter == ready_instances_by_frame.end())
-		LOG(ERROR) << "Parsing tracefile error: Cannot find a waiting (created) instance for a TEXEC_START."; // Has the OpenStream TSC fix been implemented?
+		{}
+		//LOG(ERROR) << "Parsing tracefile error: Cannot find a waiting (created) instance for a TEXEC_START."; // Has the OpenStream TSC fix been implemented?
 
 	// Get the waiting instance and remove it from queue
 	auto instances_waiting_for_execution = frame_iter->second;
-	::Fuse::Instance_p my_instance = instances_waiting_for_execution.front();
+	Fuse::Instance_p my_instance = instances_waiting_for_execution.front();
 	instances_waiting_for_execution.pop();
 	frame_iter->second = instances_waiting_for_execution;
 
 	// Give it its execution details
-	::Fuse::Symbol symbol("unknown_symbol_name");
+	Fuse::Symbol symbol("unknown_symbol_name");
 	if(se->active_task->symbol_name != nullptr){
 		symbol = se->active_task->symbol_name;
 		std::replace(symbol.begin(), symbol.end(), ',', '_');
@@ -511,17 +528,20 @@ void ::Fuse::Execution_profile::process_openstream_instance_start(
 
 }
 
-void ::Fuse::Execution_profile::process_openstream_instance_end(
+void Fuse::Execution_profile::process_openstream_instance_end(
 		struct single_event* se,
 		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		std::vector<uint64_t>& runtime_starts_by_cpu,
 		std::vector<int>& ces_hints_per_cpu
 		){
+	
+	spdlog::trace("Processing an OpenStream TEXEC_END on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
 	// Find the executing instance on this CPU that has just ended
 	auto executing_iter = executing_instances_by_cpu.find(se->event_set->cpu);
 	if(executing_iter == executing_instances_by_cpu.end())
-		LOG(FATAL) << "Parsing tracefile error: Encountered a TEXEC_END trace event, but cannot find an executing task on the CPU (" << se->event_set->cpu << "). Aborting.";
+		{}
+		//LOG(FATAL) << "Parsing tracefile error: Encountered a TEXEC_END trace event, but cannot find an executing task on the CPU (" << se->event_set->cpu << "). Aborting.";
 
 	// Mark when it ended
 	auto my_instance = executing_iter->second.first;
@@ -532,7 +552,7 @@ void ::Fuse::Execution_profile::process_openstream_instance_end(
 
 	// Calculate the instance's counter values and append them
 	this->interpolate_and_append_counter_values(my_instance,my_instance->start,my_instance->end,se->event_set,ces_hints_per_cpu.at(se->event_set->cpu));
-	
+
 	// Add the instance to this execution profile
 	this->add_instance(my_instance);
 
@@ -541,7 +561,7 @@ void ::Fuse::Execution_profile::process_openstream_instance_end(
 
 }
 			
-void ::Fuse::Execution_profile::process_next_openstream_single_event(
+void Fuse::Execution_profile::process_next_openstream_single_event(
 		struct single_event* se,
 		struct frame* top_level_frame,
 		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
@@ -605,6 +625,8 @@ void ::Fuse::Execution_profile::process_next_openstream_single_event(
 		}
 		case SINGLE_TYPE_SYSCALL: {
 			
+			spdlog::trace("Processing an OpenStream SYSCALL on cpu {} at timestamp {}", se->event_set->cpu, se->time);
+
 			// Increment the instance (or runtime-instance) value for this syscall
 
 			std::stringstream ss;
@@ -622,22 +644,21 @@ void ::Fuse::Execution_profile::process_next_openstream_single_event(
 	
 }
 
-void ::Fuse::Execution_profile::interpolate_and_append_counter_values(
-	::Fuse::Instance_p instance,
-	uint64_t start_time,
-	uint64_t end_time,
-	struct event_set* es,
-	int& start_index_hint){
-
+void Fuse::Execution_profile::interpolate_and_append_counter_values(
+		::Fuse::Instance_p instance,
+		uint64_t start_time,
+		uint64_t end_time,
+		struct event_set* es,
+		int& start_index_hint){
 
 }
 
-void ::Fuse::Execution_profile::parse_openmp_instances(struct multi_event_set* mes){
+void Fuse::Execution_profile::parse_openmp_instances(struct multi_event_set* mes){
 
 }
 
 // define an explicit implementation of the templated update_data_accesses function for our comparator
-template void ::Fuse::Execution_profile::update_data_accesses<data_access_time_compare>(
+template void Fuse::Execution_profile::update_data_accesses<data_access_time_compare>(
 		struct multi_event_set* mes,
 		struct single_event* se,
 		::boost::icl::interval_map<

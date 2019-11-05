@@ -2,15 +2,15 @@
 
 #include "fuse_types.h"
 
-::Fuse::Instance::Instance(){
+Fuse::Instance::Instance(){
 
 }
 
-::Fuse::Instance::~Instance(){
+Fuse::Instance::~Instance(){
 
 }
 
-void ::Fuse::Instance::append_event_value(::Fuse::Event event, int64_t value, bool additive){
+void Fuse::Instance::append_event_value(::Fuse::Event event, int64_t value, bool additive){
 
 	if(additive){
 
@@ -25,7 +25,7 @@ void ::Fuse::Instance::append_event_value(::Fuse::Event event, int64_t value, bo
 
 }
 
-void ::Fuse::Instance::append_max_event_value(::Fuse::Event event, int64_t value){
+void Fuse::Instance::append_max_event_value(::Fuse::Event event, int64_t value){
 
 	auto event_iter = this->event_values.find(event);
 	if(event_iter == this->event_values.end())

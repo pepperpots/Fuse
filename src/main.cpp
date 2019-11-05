@@ -1,17 +1,21 @@
 #include "fuse.h"
-#include "helpers.h"
 
 #include "cxxopts.hpp"
-#include "easylogging++.h"
+
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/basic_file_sink.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <iostream>
+#include <iomanip>
+#include <ctime>
 
-auto setup_options(char* argv){
+cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_options, std::vector<std::string>& utility_options){
 	
 	cxxopts::Options options(argv, "Configuration is given with command line options:");
 	options.add_options("Miscellaneous")
 		("h,help", "Print this help.")
-		("debug", "Enable DEBUG logging.");
+		("log_level", "Set minimum logging level. Argument is integer position in {warn, info, debug, trace}. Defaults to info.", cxxopts::value<unsigned int>()->default_value("1"));
 
 	options.add_options("Main")
 		("f,target_folder", "Target Fuse target folder (containing fuse.json).", cxxopts::value<std::string>())
@@ -32,9 +36,6 @@ auto setup_options(char* argv){
 		("benchmark", "Argument is the benchmark to use when loading tracefile for utility options.", cxxopts::value<std::string>())
 		("output_file", "Argument is the output_file that utility options will create.", cxxopts::value<std::string>());
 
-	std::vector<std::string> main_options;
-	std::vector<std::string> utility_options;
-
 	auto main_options_group = options.group_help("Main").options;
 	for(auto opt : main_options_group){
 		main_options.push_back(opt.s);
@@ -46,7 +47,62 @@ auto setup_options(char* argv){
 		utility_options.push_back(opt.l);
 	}
 
-	return std::make_tuple(options, main_options, utility_options);
+	return options;
+
+}
+
+void initialize_logging(std::string logging_directory, unsigned int log_level){
+	
+	std::string logger_name = "fuse";
+	auto logger = spdlog::get(logger_name);
+	if(logger)
+		spdlog::drop_all();
+
+	// Filename is the current datetime
+	auto t = std::time(nullptr);
+	auto tm = *std::localtime(&t);
+
+	std::ostringstream oss;
+	oss << logging_directory << std::put_time(&tm, "/%Y%m%d.%H%M.log");
+	auto log_filename = oss.str();
+
+	auto directory = Fuse::Util::check_or_create_directory_from_filename(log_filename);
+
+	// Set up sinks for stdout and file logging
+	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename);
+
+	std::vector<spdlog::sink_ptr> sinks;
+	sinks.push_back(console_sink);
+	sinks.push_back(file_sink);
+
+	// Initialize fuse library logging to those sinks
+	logger = Fuse::initialize(sinks, log_level);
+
+	logger->set_pattern("[%Y-%m-%d %H:%M:%S] [runner] [%^%l%$]: %v");
+
+	// Set log level
+	switch(log_level) {
+		case 0:
+			logger->set_level(spdlog::level::warn);
+			break;
+		case 1:
+			logger->set_level(spdlog::level::info);
+			break;
+		case 2:
+			logger->set_level(spdlog::level::debug);
+			break;
+		case 3:
+			logger->set_level(spdlog::level::trace);
+			break;
+		default:
+			spdlog::warn("Log level {} is invalid so defaulting to 1 (INFO). See help for log level options.",log_level);
+	};
+	
+	// Initialize this client application logging using the same sinks
+	spdlog::set_default_logger(logger);
+
+	spdlog::debug("Logging to filename {}.", log_filename);
 
 }
 
@@ -56,26 +112,27 @@ void run_main_options(cxxopts::ParseResult options_parse_result){
 }
 
 void run_utility_options(cxxopts::ParseResult options_parse_result){
-	
-	Fuse::initialize("/tmp", options_parse_result.count("debug"));
 
 	/* All of these options operate on a loaded tracefile, so let's do that first */
 	
 	/* What tracefile to load */
 	if(!options_parse_result.count("tracefile")){
-		LOG(FATAL) << "Must provide the tracefile filename as option 'tracefile'";
+		spdlog::critical("Must provide the tracefile filename as option 'tracefile'");
+		exit(1);
 	}
 	std::string tracefile = options_parse_result["tracefile"].as<std::string>();
 
 	/* Binary to find symbols */	
 	if(!options_parse_result.count("benchmark")){
-		LOG(FATAL) << "Must provide the tracefile's binary via option 'benchmark'";
+		spdlog::critical("Must provide the tracefile's binary via option 'benchmark'");
+		exit(1);
 	}
 	std::string benchmark = options_parse_result["benchmark"].as<std::string>();
 	
 	/* Where to output the results */	
 	if(!options_parse_result.count("output_file")){
-		LOG(FATAL) << "Must provide the file to output results into via option 'output_file'";
+		spdlog::critical("Must provide the file to output results into via option 'output_file'");
+		exit(1);
 	}
 	std::string output_file = options_parse_result["output_file"].as<std::string>();
 
@@ -89,24 +146,28 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 	execution_profile->load_from_tracefile(load_communication_matrix);
 
 	if(options_parse_result.count("dump_instances")){
-
 	}
 
 	if(options_parse_result.count("dump_dependency_matrix")){
-
 	}
 	
+	return;
+
 }
 
 int main(int argc, char** argv){
 
-	auto [options, main_options, utility_options] = setup_options(argv[0]);
+	std::vector<std::string> main_options, utility_options;
+	cxxopts::Options options = setup_options(argv[0], main_options, utility_options);
 
 	const cxxopts::ParseResult options_parse_result = options.parse(argc, argv);
 	if(options_parse_result.count("help")){
-		std::cout << options.help({""}) << std::endl;
+		std::cout << options.help();
 		exit(0);
 	}
+	
+	// initialise logging (external to the target directory)
+	initialize_logging("/tmp/libfuse_logs",options_parse_result["log_level"].as<unsigned int>());
 
 	bool opt_given = false;
 
@@ -116,7 +177,7 @@ int main(int argc, char** argv){
 		opt_given = true;
 		run_utility_options(options_parse_result);
 	}
-		
+
 	if(std::any_of(std::begin(main_options), std::end(main_options), [&](std::string opt) {
 				return options_parse_result.count(opt);
 			})){
@@ -125,11 +186,10 @@ int main(int argc, char** argv){
 	}
 
 	if(opt_given == false){
-		std::cout << "No valid option given." << std::endl;
-		std::cout << options.help();
-		exit(0);
+		spdlog::error("No valid option given.");
+		spdlog::info(options.help());
+		exit(1);
 	}
 
-	LOG(INFO) << "Finished.";
 	return 0;
 }

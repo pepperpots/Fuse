@@ -1,3 +1,3 @@
 #include "config.h"
 
-bool ::Fuse::Config::fuse_debug_mode = false;
+unsigned int ::Fuse::Config::fuse_log_level = 1;

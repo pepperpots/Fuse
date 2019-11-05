@@ -5,7 +5,7 @@ namespace Fuse {
 
 	namespace Config {
 
-		extern bool fuse_debug_mode;
+		extern unsigned int fuse_log_level;
 
 	}
 
