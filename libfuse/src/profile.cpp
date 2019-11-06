@@ -31,7 +31,7 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 
 	// load the instances from the tracefile into the map, using the aftermath calls
 	spdlog::info("Loading tracefile {}.", this->tracefile);
-	
+
   struct multi_event_set* mes = new multi_event_set;
   multi_event_set_init(mes);
 
@@ -46,7 +46,7 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 		spdlog::error("There was an error reading symbols from the binary '{}'.", this->benchmark);
 		exit(1);
 	}
-	
+
 	this->parse_instances_from_mes(mes, load_communication_matrix);
 
 	// We no longer need the MES, so free the memory
@@ -76,10 +76,10 @@ bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
 	for(unsigned int i=0; i<a_depth && i<b_depth; i++){
 		if(a->label.at(i) < b->label.at(i))
 			return true;
-		
+
 		if(b->label.at(i) < a->label.at(i))
 			return false;
-	}        
+	}
 
 	return (a_depth < b_depth);
 }
@@ -104,14 +104,14 @@ std::vector<::Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std
 }
 
 void Fuse::Execution_profile::print_to_file(std::string output_file){
-	
+
 	spdlog::info("Dumping the execution profile {} to output file {}.", this->tracefile, output_file);
 
 	Event_set events = this->get_unique_events();
 	spdlog::debug("The execution profile contains events {}.", ::Fuse::Util::vector_to_string(events));
 
 	std::ofstream out(output_file);
-	
+
 	if(out.is_open()){
 
 		std::stringstream header_ss;
@@ -122,7 +122,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 		std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
 		std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
-	
+
 		for(auto instance : all_instances){
 
 			std::stringstream ss;
@@ -134,7 +134,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 				bool error = false;
 				int64_t value = instance->get_event_value(event,error);
-				
+
 				if(error == false) {
 					ss << "," << value;
 				} else {
@@ -143,7 +143,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 				}
 
 			}
-			
+
 			out << ss.str() << "\n";
 
 		}
@@ -165,12 +165,13 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 
 	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
-	
+
 	spdlog::trace("Dumping the instance dependencies for {} instances, of which {} have dependencies.", all_instances.size(), this->instance_dependencies.size());
 
 	std::ofstream dense_adj(output_file);
 
 	// Prior to the adjacency matrix in the file, the number of instances and each label is provided
+	// Trying to make this more efficient by avoiding (direct or indirect) streams
 	char numstr[16];
 	sprintf(numstr, "%lu", all_instances.size());
 
@@ -184,7 +185,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 		filestring += ::Fuse::Util::vector_to_string(instance->label,"-");
 		filestring += "\n";
 	}
-	
+
 	dense_adj << filestring;
 
 	// Now print the adjacency matrix
@@ -218,14 +219,14 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 
 		// Go through all the instances that the consumer might depend on
 		for(int potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
-	
-			// I am iterating the potential_producers in order, so check if this one is the next in my ordered producer list		
+
+			// I am iterating the potential_producers in order, so check if this one is the next in my ordered producer list
 
 			if(ordered_producer_indexes_for_this_consumer.size() > 0
 					&& potential_producer_idx == *ordered_producer_indexes_for_this_consumer.begin()){
 
 				filestring += "1,";
-				
+
 				// pop the front of the set so the next producer is always the front
 				ordered_producer_indexes_for_this_consumer.erase(ordered_producer_indexes_for_this_consumer.begin());
 
@@ -244,13 +245,104 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 
 }
 
-// TODO
-void Fuse::Execution_profile::dump_instance_dependencies_graphviz(std::string filename){
+void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_file){
+
+	spdlog::info("Dumping the instance-creation and data-dependency DAGs as .dot visualisation to {}", output_file);
+
+	std::ofstream graph(output_file);
+
+	std::string filestring = "digraph D {\n";
+	graph << filestring;
+
+	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
+
+	// Each label is associated with its ordered index in all_instances
+	// This is necessary to later search for a parent instance directly from the child instance's truncated label
+	std::map<std::string, int> node_label_to_node_index;
+
+	filestring = "";
+
+	// First, declare all the instances as nodes
+	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
+
+		auto instance = all_instances.at(instance_idx);
+
+		auto label_string = ::Fuse::Util::vector_to_string(instance->label,"-");
+
+		node_label_to_node_index.insert(std::make_pair(label_string,instance_idx));
+
+		std::string name = "node_" + std::to_string(instance_idx);
+		filestring += (name + " [label=\"" + std::to_string(instance_idx) + "\n" + label_string + "\n" + instance->symbol + "\"];\n");
+	}
+
+	graph << filestring;
+	filestring = "";
+
+	// Next, define all the instance-creation edges
+	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
+
+		auto instance = all_instances.at(instance_idx);
+
+		// Find the instance with my parent's label
+		// Then draw an edge between my parent instance and me
+
+		auto my_label_string = ::Fuse::Util::vector_to_string(instance->label,"-");
+
+		auto parent_label = instance->label; // copy constructor
+		parent_label.pop_back(); // remove my child rank
+
+		auto parent_label_string = ::Fuse::Util::vector_to_string(parent_label,"-");
+
+		auto parent_node_iter = node_label_to_node_index.find(parent_label_string);
+		if (parent_node_iter == node_label_to_node_index.end())
+			continue; // The instance is a top-level instance (with no parent)
+
+		std::string child_name = "node_" + std::to_string(instance_idx);
+		std::string parent_name = "node_" + std::to_string(parent_node_iter->second);
+
+		filestring += (parent_name + " -> " + child_name + "\n");
+
+	}
+
+	graph << filestring;
+
+	// Next, define the data-dependencies
+	for(int consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
+
+		filestring = "";
+
+		// For each consumer, find the indexes of its producers in the all_instances list...
+		auto consumer_instance = all_instances.at(consumer_idx);
+		auto depend_iter = this->instance_dependencies.find(consumer_instance);
+
+		if(depend_iter == this->instance_dependencies.end())
+			continue; // This instance does not depend on any other instance
+
+		std::string consumer_name = "node_" + std::to_string(consumer_idx);
+
+		for(auto producer_instance : depend_iter->second.first){
+
+			// Get ordered index for this producer instance, in order to determine the node name
+			auto producer_ordered_index = std::find(all_instances.begin(), all_instances.end(), producer_instance) - all_instances.begin();
+
+			std::string producer_name = "node_" + std::to_string(producer_ordered_index);
+
+			filestring += (producer_name + " -> " + consumer_name + " [style=dotted];\n");
+
+		}
+
+		graph << filestring;
+
+	}
+
+	graph << "}\n";
+	graph.close();
 
 }
 
 void Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
-	
+
 	auto symbol_iter = this->instances.find(instance->symbol);
 
 	if(symbol_iter == this->instances.end()){
@@ -311,13 +403,13 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 	* Data structures for parsing the trace events
 	* --------------------------
 	*/
-	
+
 	// Frame maps to a queue of instances waiting to start executing
 	// The next TEXEC start with the appropriate frame will be the next instance in the queue
 	std::map<uint64_t, std::queue<::Fuse::Instance_p> > ready_instances_by_frame;
 
 	// Each executing instance is paired with its label
-	std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > > executing_instances_by_cpu; 
+	std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > > executing_instances_by_cpu;
 
 	// a particular interval is read or written by a particular instance
 	::boost::icl::interval_map<
@@ -343,7 +435,7 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 	std::vector<uint64_t> partially_traced_state_time_by_cpu;
 	std::vector<unsigned int> next_state_event_idx_by_cpu;
 	for(int cpu_idx = mes->min_cpu; cpu_idx <= mes->max_cpu; cpu_idx++){
-		
+
 		Instance_p runtime_instance(new Instance());
 		std::vector<int> label = {(-cpu_idx - 1)};
 		runtime_instance->label = label;
@@ -397,9 +489,9 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 			runtime_starts_by_cpu,
 			ces_hints_per_cpu,
 			top_level_instance_counter);
-			
+
 	}
-	
+
 	// Add the runtime instances simply as instances with the symbol 'runtime' to the dataset
 	for(int cpu_idx = mes->min_cpu; cpu_idx <= mes->max_cpu; cpu_idx++){
 		this->add_instance(runtime_instances_by_cpu.at(cpu_idx));
@@ -424,7 +516,7 @@ void Fuse::Execution_profile::gather_sorted_openstream_parsing_events(
 		std::vector<struct single_event*>& all_single_events,
 		std::vector<struct comm_event*>& all_comm_events
 		){
-	
+
 	for(auto es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
 		for(unsigned int idx = 0; idx < es->num_single_events; idx++){
 			all_single_events.push_back(&es->single_events[idx]);
@@ -453,7 +545,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 
 	unsigned int single_event_cpu = se->event_set->cpu;
 	unsigned int next_state_event_idx = next_state_event_idx_by_cpu.at(single_event_cpu);
-	
+
 	bool handling_states = true;
 	while(handling_states){
 		if(next_state_event_idx < se->event_set->num_state_events &&
@@ -463,7 +555,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 
 			struct state_event* state_event = &se->event_set->state_events[next_state_event_idx];
 			char* state_name = multi_event_set_find_state_description(mes, state_event->state_id)->name;
-			
+
 			std::stringstream ss;
 			ss << "cycles_" << state_name;
 			this->add_event(ss.str());
@@ -478,14 +570,14 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 
 				responsible_instance = runtime_instances_by_cpu.at(single_event_cpu);
 
-				// if we haven't yet started the instances, don't trace the runtime state			
+				// if we haven't yet started the instances, don't trace the runtime state
 				if(runtime_starts_by_cpu.at(single_event_cpu) == 0)
 					should_add = false;
 
 			} else {
 				responsible_instance = executing_iter->second.first;
 			}
-			
+
 			// Now find the amount of cycles of this state to allocate
 
 			if(se->time >= state_event->end){
@@ -505,7 +597,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 			} else {
 				// the current state ended after the single event timestamp
 
-				// so: 
+				// so:
 					// trace the state up to the single event
 					// record that we have partially traced this state in the per-cpu vector
 					// then next time, subtract what we have already partially traced from what we intend to trace
@@ -514,7 +606,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 				int64_t additional_partial_time_in_state = se->time - state_event->start - partially_traced_state_time;
 
 				partially_traced_state_time_by_cpu.at(single_event_cpu) += additional_partial_time_in_state;
-				
+
 				if(should_add)
 					responsible_instance->append_event_value(ss.str(),additional_partial_time_in_state,true);
 
@@ -558,7 +650,7 @@ void Fuse::Execution_profile::update_data_accesses(
 
 	while(handling_comm){
 		if(next_comm_event_idx < total_num_comm_events && all_comm_events[next_comm_event_idx]->time < se->time){
-			
+
 			// We only care about READ and WRITE communication events, so iterate forward until we get one
 			// or until we are past the current single event timestamp
 			struct comm_event* ce = all_comm_events[next_comm_event_idx];
@@ -578,7 +670,7 @@ void Fuse::Execution_profile::update_data_accesses(
 						spdlog::critical("There is no executing instance for a read communication event");
 						exit(1);
 					}
-					
+
 					Instance_p responsible_instance = executing_iter->second.first;
 
 					if(load_communication_matrix){
@@ -599,13 +691,13 @@ void Fuse::Execution_profile::update_data_accesses(
 					break;
 				}
 				case COMM_TYPE_DATA_WRITE: {
-					
+
 					auto executing_iter = executing_instances_by_cpu.find(ce->src_cpu);
 					if(executing_iter == executing_instances_by_cpu.end()){
 						spdlog::critical("There is no executing instance for a write communication event");
 						exit(1);
 					}
-					
+
 					Instance_p responsible_instance = executing_iter->second.first;
 
 					if(load_communication_matrix){
@@ -615,23 +707,23 @@ void Fuse::Execution_profile::update_data_accesses(
 
 						data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
 					}
-					
+
 					std::stringstream ss;
 					ss << "data_write_" << ce->numa_dist << "_hops";
 					this->add_event(ss.str());
 
 					responsible_instance->append_event_value(ss.str(),ce->size,true);
-					
+
 					break;
 				}
 
 			}
-			
+
 			// continue on to handle the next communication event
 			next_comm_event_idx++;
 
 		} else {
-			
+
 			// any remaining communication events are after the current single event,
 			// so we want to process the current single event first
 			handling_comm = false;
@@ -650,7 +742,7 @@ void Fuse::Execution_profile::process_openstream_instance_creation(
 			std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 			unsigned int& top_level_instance_counter
 			){
-	
+
 	spdlog::trace("Processing an OpenStream TCREATE on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
 	::Fuse::Instance_p instance(new Instance());
@@ -665,7 +757,7 @@ void Fuse::Execution_profile::process_openstream_instance_creation(
 		auto executing_iter = executing_instances_by_cpu.find(se->event_set->cpu);
 		instance->label = executing_iter->second.second;
 
-		// Update the rank for my later siblings 
+		// Update the rank for my later siblings
 		executing_iter->second.second.at(executing_iter->second.second.size()-1)++;
 	}
 
@@ -716,8 +808,8 @@ void Fuse::Execution_profile::process_openstream_instance_start(
 		symbol = se->active_task->symbol_name;
 		std::replace(symbol.begin(), symbol.end(), ',', '_');
 	}
-		
-	my_instance->symbol = symbol; 
+
+	my_instance->symbol = symbol;
 	my_instance->cpu = se->event_set->cpu;
 	my_instance->start = se->time;
 	my_instance->is_gpu_eligible = se->what->is_gpu_eligible;
@@ -725,7 +817,7 @@ void Fuse::Execution_profile::process_openstream_instance_start(
 	// Set the next child label for this CPU to be this instance's label, with an appended 0 (for the first child rank)
 	auto label_for_potential_child = my_instance->label; // calls copy constructor
 	label_for_potential_child.push_back(0);
-	 
+
 	auto executing_pair = std::make_pair(my_instance,label_for_potential_child);
 	executing_instances_by_cpu.insert(std::make_pair(se->event_set->cpu,executing_pair));
 
@@ -745,7 +837,7 @@ void Fuse::Execution_profile::process_openstream_instance_end(
 		std::vector<uint64_t>& runtime_starts_by_cpu,
 		std::vector<int>& ces_hints_per_cpu
 		){
-	
+
 	spdlog::trace("Processing an OpenStream TEXEC_END on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
 	// Find the executing instance on this CPU that has just ended
@@ -771,7 +863,7 @@ void Fuse::Execution_profile::process_openstream_instance_end(
 	runtime_starts_by_cpu.at(se->event_set->cpu) = se->time;
 
 }
-			
+
 void Fuse::Execution_profile::process_next_openstream_single_event(
 		struct single_event* se,
 		struct frame* top_level_frame,
@@ -788,7 +880,7 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 			se->type == SINGLE_TYPE_SYSCALL)){
 		return;
 	}
-	
+
 	int single_event_cpu = se->event_set->cpu;
 
 	switch(se->type){
@@ -818,7 +910,7 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 					se->event_set,
 					ces_hints_per_cpu.at(single_event_cpu));
 			}
-			
+
 			this->process_openstream_instance_start(se,
 				ready_instances_by_frame,
 				executing_instances_by_cpu);
@@ -831,11 +923,11 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 					executing_instances_by_cpu,
 					runtime_starts_by_cpu,
 					ces_hints_per_cpu);
-			
+
 			break;
 		}
 		case SINGLE_TYPE_SYSCALL: {
-			
+
 			spdlog::trace("Processing an OpenStream SYSCALL on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
 			// Increment the instance (or runtime-instance) value for this syscall
@@ -853,7 +945,7 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 			break;
 		}
 	}
-	
+
 }
 
 template <typename Compare>
@@ -868,7 +960,7 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 
 	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
-	
+
 	spdlog::trace("There are {} data intervals that are accessed.", data_accesses.iterative_size());
 
 	// iterate all the data, and create the links for dependent instances
@@ -898,7 +990,7 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 		auto interval_string = ss.str();
 
 		spdlog::trace("There are {} producer instances and {} consumer instances for memory location interval {}.", producer_instances.size(), consumer_instances.size(), interval_string);
-	
+
 		unsigned int previous_producer_idx = 0;
 		for(auto consumer : consumer_instances){
 

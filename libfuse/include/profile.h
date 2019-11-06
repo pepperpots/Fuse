@@ -41,7 +41,7 @@ namespace Fuse {
 			void load_from_tracefile(bool load_communication_matrix);
 			void print_to_file(std::string output_file);
 			void dump_instance_dependencies(std::string output_file);
-			void dump_instance_dependencies_graphviz(std::string filename);
+			void dump_instance_dependencies_dot(std::string output_file);
 
 			::Fuse::Event_set get_unique_events();
 			std::vector<::Fuse::Instance_p> get_instances(const std::vector<::Fuse::Symbol> symbols);

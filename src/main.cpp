@@ -27,8 +27,8 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 	options.add_options("Utility")
 		("dump_instances", "Dumps an execution profile matrix. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>())
-		("dump_dag_adjacency", "Dumps the data-dependency DAG as a dense adjacency matrix. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>());
-		("dump_dag_graphviz", "Dumps the data-dependency DAG as a graphviz visualization. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>());
+		("dump_dag_adjacency", "Dumps the data-dependency DAG as a dense adjacency matrix. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>())
+		("dump_dag_dot", "Dumps the task-creation and data-dependency DAG as a .dot for visualization. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>());
 
 	options.add_options("Parameter")
 		("strategies", "Comma-separated list of strategies from {'random','ctc','lgl','bc','hem'}.",cxxopts::value<std::string>())
@@ -130,7 +130,7 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 	std::string benchmark = options_parse_result["benchmark"].as<std::string>();
 
 	bool load_communication_matrix = false;
-	if(options_parse_result.count("dump_dag_adjacency") || options_parse_result.count("dump_dag_graphviz"))
+	if(options_parse_result.count("dump_dag_adjacency") || options_parse_result.count("dump_dag_dot"))
 		load_communication_matrix = true;
 
 	/* Now load */
@@ -147,9 +147,9 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 		execution_profile->dump_instance_dependencies(output_file);
 	}
 
-	if(options_parse_result.count("dump_dag_graphviz")){
-		std::string output_file = options_parse_result["dump_dag_graphviz"].as<std::string>();
-		execution_profile->dump_instance_dependencies_graphviz(output_file);
+	if(options_parse_result.count("dump_dag_dot")){
+		std::string output_file = options_parse_result["dump_dag_dot"].as<std::string>();
+		execution_profile->dump_instance_dependencies_dot(output_file);
 	}
 
 	return;
