@@ -24,6 +24,7 @@ namespace Fuse {
 		std::string check_or_create_directory_from_filename(std::string filename); 
 		std::string get_directory_from_filename(const std::string& filename);
 		std::vector<std::string> split_string_to_vector(const std::string& s, char delim);
+		std::string lowercase(const std::string str);
 	}
 }
 

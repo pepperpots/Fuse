@@ -134,6 +134,7 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 		load_communication_matrix = true;
 
 	/* Now load */
+
 	Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, benchmark));
 	execution_profile->load_from_tracefile(load_communication_matrix);
 

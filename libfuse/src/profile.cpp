@@ -19,13 +19,17 @@ extern "C" {
 	#undef new
 }
 
-Fuse::Execution_profile::Execution_profile(std::string tracefile, std::string benchmark)
+Fuse::Execution_profile::Execution_profile(
+		std::string tracefile,
+		std::string benchmark,
+		::Fuse::Event_set filtered_events)
 	: tracefile(tracefile)
-	, benchmark(benchmark){
+	, benchmark(benchmark)
+	, filtered_events(filtered_events){
 
 }
-Fuse::Execution_profile::~Execution_profile(){
-}
+
+Fuse::Execution_profile::~Execution_profile(){}
 
 void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix){
 
@@ -85,7 +89,7 @@ bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
 }
 
 // If symbols is empty (or not provided), then this will return all instances for all symbols
-std::vector<::Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<::Fuse::Symbol> symbols = std::vector<::Fuse::Symbol>()){
+std::vector<::Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<::Fuse::Symbol> symbols){
 
 	std::vector<::Fuse::Instance_p> all_instances;
 
@@ -108,16 +112,29 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 	spdlog::info("Dumping the execution profile {} to output file {}.", this->tracefile, output_file);
 
 	Event_set events = this->get_unique_events();
-	spdlog::debug("The execution profile contains events {}.", ::Fuse::Util::vector_to_string(events));
+
+	// Create the header
+	std::stringstream header_ss;
+	header_ss << "cpu,symbol,label"; // these are always included, regardless of filtering
+
+	bool filtered = false;
+	if(this->filtered_events.size() > 0){
+		events = this->filtered_events;
+		filtered = true;
+	} else {
+		header_ss << ",gpu_eligible";
+	}
+
+	// Finish header according to (filtered or not) events
+	for(auto event : events)
+		header_ss << "," << event;
+	
+	spdlog::debug("The execution profile contains {}events {}.", (filtered ? "filtered " : ""), ::Fuse::Util::vector_to_string(events));
 
 	std::ofstream out(output_file);
 
 	if(out.is_open()){
 
-		std::stringstream header_ss;
-		header_ss << "cpu,symbol,label,gpu_eligible";
-		for(auto event : events)
-			header_ss << "," << event;
 		out << header_ss.str() << "\n";
 
 		std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
@@ -128,12 +145,19 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 			std::stringstream ss;
 
 			ss << instance->cpu << "," << instance->symbol << "," << ::Fuse::Util::vector_to_string(instance->label, "-");
-			ss << "," << instance->is_gpu_eligible;
+
+			if(filtered == false)
+				ss << "," << instance->is_gpu_eligible;
 
 			for(auto event : events){
 
 				bool error = false;
-				int64_t value = instance->get_event_value(event,error);
+				int64_t value = 0;
+
+				if(event == "gpu_eligible")
+					value = instance->is_gpu_eligible;
+				else
+					value = instance->get_event_value(event,error);
 
 				if(error == false) {
 					ss << "," << value;
@@ -267,6 +291,8 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
 
 		auto instance = all_instances.at(instance_idx);
+		if(instance->symbol == "runtime")
+			continue;
 
 		auto label_string = ::Fuse::Util::vector_to_string(instance->label,"-");
 
@@ -283,6 +309,8 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
 
 		auto instance = all_instances.at(instance_idx);
+		if(instance->symbol == "runtime")
+			continue;
 
 		// Find the instance with my parent's label
 		// Then draw an edge between my parent instance and me
@@ -314,8 +342,10 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 
 		// For each consumer, find the indexes of its producers in the all_instances list...
 		auto consumer_instance = all_instances.at(consumer_idx);
-		auto depend_iter = this->instance_dependencies.find(consumer_instance);
+		if(consumer_instance->symbol == "runtime")
+			continue;
 
+		auto depend_iter = this->instance_dependencies.find(consumer_instance);
 		if(depend_iter == this->instance_dependencies.end())
 			continue; // This instance does not depend on any other instance
 
@@ -328,7 +358,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 
 			std::string producer_name = "node_" + std::to_string(producer_ordered_index);
 
-			filestring += (producer_name + " -> " + consumer_name + " [style=dotted];\n");
+			filestring += (producer_name + " -> " + consumer_name + " [style=dotted, constraint=false];\n");
 
 		}
 
@@ -558,7 +588,10 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 
 			std::stringstream ss;
 			ss << "cycles_" << state_name;
-			this->add_event(ss.str());
+
+			std::string event_name = ss.str();
+			event_name = ::Fuse::Util::lowercase(event_name);
+			this->add_event(event_name);
 
 			// So first find what instance I should allocate the state cycles to
 
@@ -590,7 +623,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 				partially_traced_state_time_by_cpu.at(single_event_cpu) = 0;
 
 				if(should_add)
-					responsible_instance->append_event_value(ss.str(),additional_time_in_state,true);
+					responsible_instance->append_event_value(event_name,additional_time_in_state,true);
 
 				next_state_event_idx++;
 
@@ -608,7 +641,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 				partially_traced_state_time_by_cpu.at(single_event_cpu) += additional_partial_time_in_state;
 
 				if(should_add)
-					responsible_instance->append_event_value(ss.str(),additional_partial_time_in_state,true);
+					responsible_instance->append_event_value(event_name,additional_partial_time_in_state,true);
 
 				// do not continue to the next state
 				handling_states = false;
@@ -1030,6 +1063,77 @@ void Fuse::Execution_profile::interpolate_and_append_counter_values(
 		uint64_t end_time,
 		struct event_set* es,
 		int& start_index_hint){
+
+	// Interpolate the counter values between start_time and end_time for each counter event set
+
+	int64_t value_start, value_end;
+	int num_errors = 0;
+
+	int start_idx = start_index_hint;
+	int end_idx = start_index_hint;
+	bool init = false;
+
+	// We are assuming that the execution that we are tracing between start_time and end_time occured on a single processing unit
+	// We are assuming that all counter event sets receive a value at each trace-point
+	// 	(i.e. position i in each counter event set was traced at the same timestamp)
+	for(size_t ctr_ev_idx = 0; ctr_ev_idx < es->num_counter_event_sets; ctr_ev_idx++) {
+		struct counter_event_set* ces = &es->counter_event_sets[ctr_ev_idx];
+
+		std::string event_name(ces->desc->name);
+		event_name = ::Fuse::Util::lowercase(event_name);
+
+		if(this->filtered_events.size() > 0
+				&& std::find(this->filtered_events.begin(), this->filtered_events.end(), event_name) == this->filtered_events.end())
+			continue;
+
+		this->add_event(event_name);
+
+		if(init){
+			// We know the index of the correct position in the counter_event_set, so avoid the search
+			if(counter_event_set_interpolate_value_using_index(ces, start_time, &value_start, &start_idx)) {
+				num_errors++;
+				continue;
+			}
+
+			if(counter_event_set_interpolate_value_using_index(ces, end_time, &value_end, &end_idx)) {
+				num_errors++;
+				continue;
+			}
+
+		} else {
+			// We do not know the index, but we know that the next index to use is equal to or later than the last one we used
+			// So use the last one as a hint to the search
+			if(counter_event_set_interpolate_value_search_with_hint(ces, start_time, &value_start, &start_idx)) {
+				num_errors++;
+				continue;
+			}
+
+			// We start from this index to search for the end's corresponding index
+			end_idx = start_idx;
+			if(counter_event_set_interpolate_value_search_with_hint(ces, end_time, &value_end, &end_idx)) {
+				num_errors++;
+				continue;
+			}
+
+			// start_idx is now the correct index to use for the starting timestamp
+			// end_idx is now the correct index to use for the ending timestamp
+			init = true;
+
+		}
+
+		instance->append_event_value(event_name, value_end-value_start, true);
+
+	}
+
+	// Save the starting index that we found as the hint for a later start timestamp
+	start_index_hint = start_idx;
+
+	if (num_errors > 0)
+		spdlog::warn("Found {} errors when interpolating counter events for an OpenStream instance.", num_errors);
+
+	// Append instance duration as an event
+	int64_t duration = end_time - start_time;
+	instance->append_event_value("duration",duration,true);
 
 }
 

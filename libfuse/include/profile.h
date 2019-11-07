@@ -28,6 +28,7 @@ namespace Fuse {
 
 		private:
 			::Fuse::Event_set events;
+			::Fuse::Event_set filtered_events; // If this is populated, then only these counter-events will be loaded
 
 			// if loaded, each instance maps to the pair [instances that it depends on, instances that depend on it]
 			std::map<::Fuse::Instance_p, std::pair<std::set<::Fuse::Instance_p>,std::set<::Fuse::Instance_p> > > instance_dependencies;
@@ -35,7 +36,11 @@ namespace Fuse {
 		// class functions
 		public:
 
-			Execution_profile(std::string tracefile, std::string benchmark_binary);
+			Execution_profile(
+				std::string tracefile,
+				std::string benchmark_binary,
+				::Fuse::Event_set filtered_events = ::Fuse::Event_set());
+
 			~Execution_profile();
 
 			void load_from_tracefile(bool load_communication_matrix);
@@ -44,7 +49,8 @@ namespace Fuse {
 			void dump_instance_dependencies_dot(std::string output_file);
 
 			::Fuse::Event_set get_unique_events();
-			std::vector<::Fuse::Instance_p> get_instances(const std::vector<::Fuse::Symbol> symbols);
+			std::vector<::Fuse::Instance_p> get_instances(
+				const std::vector<::Fuse::Symbol> symbols = std::vector<::Fuse::Symbol>());
 
 		private:
 
