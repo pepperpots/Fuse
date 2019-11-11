@@ -4,3 +4,6 @@
 [submodule "libfuse/external/spdlog"]
 	path = libfuse/external/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "libfuse/external/json"]
+	path = libfuse/external/json
+	url = https://github.com/nlohmann/json.git

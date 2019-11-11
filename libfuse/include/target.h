@@ -9,12 +9,8 @@ namespace Fuse {
 
 		public:
 
-			Target(std::string dir);
+			Target(std::string target_dir);
 			~Target();
-
-			// execute_sequence
-			// combine_sequence
-			// execute_references
 
 	};
 

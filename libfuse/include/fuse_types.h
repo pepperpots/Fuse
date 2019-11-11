@@ -11,6 +11,11 @@ namespace Fuse {
 	class Instance;
 	class Execution_profile;
 
+	enum Runtime {
+		OPENSTREAM,
+		OPENMP
+	};
+
 	typedef std::string Event;
 	typedef std::vector<Event> Event_set;
 	struct Sequence_part {

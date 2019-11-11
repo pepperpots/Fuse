@@ -41,15 +41,11 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 
 	off_t bytes_read = 0;
 
-	if(read_trace_sample_file(mes, this->tracefile.c_str(), &bytes_read) != 0) {
-		spdlog::error("There was an error reading the tracefile '{}' after {} bytes read.", this->tracefile, bytes_read);
-		exit(1);
-	}
+	if(read_trace_sample_file(mes, this->tracefile.c_str(), &bytes_read) != 0)
+		throw std::runtime_error(fmt::format("There was an error reading the tracefile '{}' after {} bytes read.", this->tracefile, bytes_read));
 
-	if(debug_read_task_symbols(this->benchmark.c_str(),mes) != 0){
-		spdlog::error("There was an error reading symbols from the binary '{}'.", this->benchmark);
-		exit(1);
-	}
+	if(debug_read_task_symbols(this->benchmark.c_str(),mes) != 0)
+		throw std::runtime_error(fmt::format("There was an error reading symbols from the binary '{}'.", this->benchmark));
 
 	this->parse_instances_from_mes(mes, load_communication_matrix);
 
@@ -699,10 +695,8 @@ void Fuse::Execution_profile::update_data_accesses(
 				case COMM_TYPE_DATA_READ: {
 
 					auto executing_iter = executing_instances_by_cpu.find(ce->dst_cpu);
-					if(executing_iter == executing_instances_by_cpu.end()){
-						spdlog::critical("There is no executing instance for a read communication event");
-						exit(1);
-					}
+					if(executing_iter == executing_instances_by_cpu.end())
+						throw std::runtime_error("There is no executing instance for a read communication event");
 
 					Instance_p responsible_instance = executing_iter->second.first;
 
@@ -726,10 +720,8 @@ void Fuse::Execution_profile::update_data_accesses(
 				case COMM_TYPE_DATA_WRITE: {
 
 					auto executing_iter = executing_instances_by_cpu.find(ce->src_cpu);
-					if(executing_iter == executing_instances_by_cpu.end()){
-						spdlog::critical("There is no executing instance for a write communication event");
-						exit(1);
-					}
+					if(executing_iter == executing_instances_by_cpu.end())
+						throw std::runtime_error("There is no executing instance for a write communication event");
 
 					Instance_p responsible_instance = executing_iter->second.first;
 

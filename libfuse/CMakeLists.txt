@@ -34,11 +34,16 @@ set(SPDLOG_BUILD_SHARED ON CACHE BOOL "Build static lib" FORCE)
 add_subdirectory(external/spdlog)
 unset(SPDLOG_BUILD_SHARED)
 
+set(BUILD_TESTING OFF CACHE BOOL "Build JSON tests" FORCE)
+add_subdirectory(external/json)
+unset(BUILD_TESTING)
+
 target_include_directories(fuse PRIVATE
 	external/spdlog/include
+	external/json/include
 	${AFTERMATH_INCLUDE_DIR}
 	include
 )
 
-target_link_libraries(fuse spdlog ${AFTERMATH_LIB})
+target_link_libraries(fuse spdlog nlohmann_json ${AFTERMATH_LIB})
 

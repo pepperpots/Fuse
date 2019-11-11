@@ -110,7 +110,7 @@ void Fuse::initialize(std::string log_directory, unsigned int log_level, bool lo
 			logger->set_level(spdlog::level::info);
 			break;
 	};
-
+	
 	logger->set_pattern("[%Y-%m-%d %H:%M:%S] [libFuse] [%^%l%$] %v");
 
 	spdlog::set_default_logger(logger);

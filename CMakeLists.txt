@@ -7,7 +7,6 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-#set(CMAKE_CXX_FLAGS "-fno-new-ttp-matching") # Necessary for boost::icl due to https://bugzilla.redhat.com/show_bug.cgi?id=1485641
 set(CMAKE_CXX_STANDARD 11)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/libfuse)

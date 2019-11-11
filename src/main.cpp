@@ -18,7 +18,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 		("log_level", "Set minimum logging level. Argument is integer position in {warn, info, debug, trace}. Defaults to info.", cxxopts::value<unsigned int>()->default_value("1"));
 
 	options.add_options("Main")
-		("f,target_folder", "Target Fuse target folder (containing fuse.json).", cxxopts::value<std::string>())
+		("d,target_dir", "Target Fuse target directory (containing fuse.json).", cxxopts::value<std::string>())
 		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal'.", cxxopts::value<unsigned int>())
 		("m,combine_sequence", "Combine the sequence. Conditioned by 'strategies' and 'minimal'.")
 		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'minimal', and 'accuracy_metric'.")
@@ -98,7 +98,7 @@ void initialize_logging(std::string logging_directory, unsigned int log_level){
 		default:
 			spdlog::warn("Log level {} is invalid so defaulting to 1 (INFO). See help for log level options.",log_level);
 	};
-
+	
 	// Initialize this client application logging using the same sinks
 	spdlog::set_default_logger(logger);
 
@@ -108,6 +108,23 @@ void initialize_logging(std::string logging_directory, unsigned int log_level){
 
 void run_main_options(cxxopts::ParseResult options_parse_result){
 
+	/*
+		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal'.", cxxopts::value<unsigned int>())
+		("m,combine_sequence", "Combine the sequence. Conditioned by 'strategies' and 'minimal'.")
+		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'minimal', and 'accuracy_metric'.")
+		("r,execute_references", "Execute the reference execution profiles.")
+		("c,run_calibration", "Run EPD calibration on the reference profiles.");
+	*/
+
+	/* All of these options operate on a target Fuse folder, so load its json */
+
+	if(!options_parse_result.count("target_dir"))
+		throw std::invalid_argument("Must provide the target fuse folder (containing fuse.json) as option 'target_dir'");
+	std::string target_dir = options_parse_result["tracefile"].as<std::string>();
+
+	Fuse::Target fuse_target(target_dir);
+	
+
 
 }
 
@@ -116,17 +133,13 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 	/* All of these options operate on a loaded tracefile, so let's do that first */
 
 	/* What tracefile to load */
-	if(!options_parse_result.count("tracefile")){
-		spdlog::critical("Must provide the tracefile filename as option 'tracefile'");
-		exit(1);
-	}
+	if(!options_parse_result.count("tracefile"))
+		throw std::invalid_argument("Must provide the tracefile filename via option 'tracefile'");
 	std::string tracefile = options_parse_result["tracefile"].as<std::string>();
 
 	/* Binary to find symbols */
-	if(!options_parse_result.count("benchmark")){
-		spdlog::critical("Must provide the tracefile's binary via option 'benchmark'");
-		exit(1);
-	}
+	if(!options_parse_result.count("benchmark"))
+		throw std::invalid_argument("Must provide the tracefile's binary via option 'benchmark'");
 	std::string benchmark = options_parse_result["benchmark"].as<std::string>();
 
 	bool load_communication_matrix = false;
@@ -157,19 +170,10 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 
 }
 
-int main(int argc, char** argv){
-
-	std::vector<std::string> main_options, utility_options;
-	cxxopts::Options options = setup_options(argv[0], main_options, utility_options);
-
-	const cxxopts::ParseResult options_parse_result = options.parse(argc, argv);
-	if(options_parse_result.count("help")){
-		std::cout << options.help();
-		exit(0);
-	}
-
-	// initialise logging (external to the target directory)
-	initialize_logging("/tmp/libfuse_logs",options_parse_result["log_level"].as<unsigned int>());
+void run_options(const cxxopts::Options options,
+		const cxxopts::ParseResult options_parse_result,
+		const std::vector<std::string> main_options,
+		const std::vector<std::string> utility_options){
 
 	bool opt_given = false;
 
@@ -188,12 +192,34 @@ int main(int argc, char** argv){
 	}
 
 	if(opt_given == false){
-		spdlog::error("No valid option given.");
-		spdlog::info(options.help());
-		exit(1);
+		throw std::invalid_argument(fmt::format("No valid option given. {}", options.help()));
+	}
+
+}
+
+int main(int argc, char** argv){
+
+	std::vector<std::string> main_options, utility_options;
+	cxxopts::Options options = setup_options(argv[0], main_options, utility_options);
+
+	const cxxopts::ParseResult options_parse_result = options.parse(argc, argv);
+	if(options_parse_result.count("help")){
+		std::cout << options.help();
+		return 0;
+	}
+
+	// initialise logging (external to the target directory)
+	initialize_logging("/tmp/libfuse_logs",options_parse_result["log_level"].as<unsigned int>());
+
+	try {
+
+		run_options(options, options_parse_result, main_options, utility_options);
+
+	} catch (const std::exception &e){
+		spdlog::error(e.what());
+		return 1;
 	}
 
 	spdlog::info("Finished.");
-
 	return 0;
 }
