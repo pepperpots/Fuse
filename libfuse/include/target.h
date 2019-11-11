@@ -37,16 +37,21 @@ namespace Fuse {
 			unsigned int num_minimal_sequence_repeats;
 			std::map<Fuse::Strategy, unsigned int> combination_counts;
 
-			bool cache_cleared;
+			bool should_clear_cache;
+
+			bool modified;
 
 		public:
 
 			Target(std::string target_dir);
-			~Target();
+
+			void save();
 
 		private:
-			void parse_json_mandatory(nlohmann::json j);
-			void parse_json_optional(nlohmann::json j);
+			void parse_json_mandatory(nlohmann::json& j);
+			void parse_json_optional(nlohmann::json& j);
+			void generate_json_mandatory(nlohmann::json& j);
+			void generate_json_optional(nlohmann::json& j);
 			void check_or_create_directories();
 
 	};

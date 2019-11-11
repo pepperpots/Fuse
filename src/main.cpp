@@ -124,8 +124,6 @@ void run_main_options(cxxopts::ParseResult options_parse_result){
 
 	Fuse::Target fuse_target(target_dir);
 
-
-
 }
 
 void run_utility_options(cxxopts::ParseResult options_parse_result){

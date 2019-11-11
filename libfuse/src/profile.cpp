@@ -21,10 +21,11 @@ extern "C" {
 Fuse::Execution_profile::Execution_profile(
 		std::string tracefile,
 		std::string benchmark,
-		Fuse::Event_set filtered_events)
-	: tracefile(tracefile)
-	, benchmark(benchmark)
-	, filtered_events(filtered_events){
+		Fuse::Event_set filtered_events):
+			tracefile(tracefile),
+			benchmark(benchmark),
+			filtered_events(filtered_events)
+		{
 
 }
 

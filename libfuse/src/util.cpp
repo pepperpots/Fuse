@@ -7,6 +7,21 @@
 
 // cannot assume that spdlog has been initialized
 
+bool Fuse::Util::check_file_existance(std::string filename){
+
+	struct stat sb;
+
+	if(stat(filename.c_str(), &sb) == 0){
+		if(S_ISREG(sb.st_mode))
+			return true;
+		else
+			return false;
+	}
+
+	return false;
+
+}
+
 void Fuse::Util::check_or_create_directory(std::string directory){
 
 	struct stat sb;
@@ -15,8 +30,10 @@ void Fuse::Util::check_or_create_directory(std::string directory){
 
 		if(S_ISDIR(sb.st_mode))
 			return;
-		else
-			std::cerr << "'" << directory << "' exists but is not a directory, so cannot log into this location." << std::endl;
+		else {
+			std::string msg = "'" + directory + "' exists but is not a directory.";
+			throw std::runtime_error(msg);
+		}
 
 	} else {
 
@@ -38,8 +55,10 @@ std::string Fuse::Util::check_or_create_directory_from_filename(std::string file
 
 		if(S_ISDIR(sb.st_mode))
 			return directory;
-		else
-			std::cerr << "'" << directory << "' exists but is not a directory, so cannot log into this location." << std::endl;
+		else {
+			std::string msg = "'" + directory + "' exists but is not a directory.";
+			throw std::runtime_error(msg);
+		}
 
 	} else {
 
