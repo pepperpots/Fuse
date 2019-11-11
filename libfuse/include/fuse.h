@@ -1,18 +1,15 @@
 #ifndef FUSE_H
 #define FUSE_H
 
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "fuse_types.h"
 #include "util.h"
-
 #include "instance.h"
 #include "target.h"
 #include "profile.h"
 
-//#include "spdlog/spdlog.h"
+#include <memory>
+#include <string>
+#include <vector>
 
 // Forward declare necessary logging data structures, if user application does not use spdlog
 namespace spdlog {

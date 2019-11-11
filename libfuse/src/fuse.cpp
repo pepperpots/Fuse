@@ -13,9 +13,9 @@
 
 /* Initialize logging within the library, connected to the same spdlog sinks used by the client application */
 std::shared_ptr<spdlog::logger> Fuse::initialize(std::vector<spdlog::sink_ptr> sinks, unsigned int log_level){
-	
+
 	std::srand(std::time(0));
-		
+
 	std::string logger_name = "fuse";
 
 	// check if we already have a logger in this library
@@ -45,7 +45,7 @@ std::shared_ptr<spdlog::logger> Fuse::initialize(std::vector<spdlog::sink_ptr> s
 		};
 
 		logger->set_pattern("[%Y-%m-%d %H:%M:%S] [libFuse] %^%l%$ %v");
-	
+
 		spdlog::set_default_logger(logger);
 
 	} else {
@@ -55,19 +55,19 @@ std::shared_ptr<spdlog::logger> Fuse::initialize(std::vector<spdlog::sink_ptr> s
 		exit(1);
 
 	}
-	
-	::Fuse::Config::fuse_log_level = log_level;
+
+	Fuse::Config::fuse_log_level = log_level;
 
 	return logger;
 }
 
 /* Initialize logging within the library, disconnected from spdlogging (or lack thereof) in the client application */
 void Fuse::initialize(std::string log_directory, unsigned int log_level, bool log_to_file){
-	
+
 	std::srand(std::time(0));
-		
+
 	std::string logger_name = "fuse";
-	
+
 	auto logger = spdlog::get(logger_name);
 	if(logger)
 		spdlog::drop_all();
@@ -86,7 +86,7 @@ void Fuse::initialize(std::string log_directory, unsigned int log_level, bool lo
 		std::ostringstream oss;
 		oss << log_directory << std::put_time(&tm, "/%Y%m%d.%H%M.log");
 		auto log_filename = oss.str();
-	
+
 		Fuse::Util::check_or_create_directory_from_filename(log_filename);
 
 		auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename);
@@ -110,7 +110,7 @@ void Fuse::initialize(std::string log_directory, unsigned int log_level, bool lo
 			logger->set_level(spdlog::level::info);
 			break;
 	};
-	
+
 	logger->set_pattern("[%Y-%m-%d %H:%M:%S] [libFuse] [%^%l%$] %v");
 
 	spdlog::set_default_logger(logger);
@@ -125,7 +125,7 @@ void Fuse::initialize(std::string log_directory, unsigned int log_level, bool lo
 	conf.setGlobally(el::ConfigurationType::Format,std::string("%datetime{%Y%M%d.%H%m.%s}:[%level]: %msg"));
 	conf.setGlobally(el::ConfigurationType::Filename,ss.str());
 
-	
+
 	el::Loggers::reconfigureAllLoggers(conf);
 	el::Loggers::addFlag(el::LoggingFlag::FixedTimeFormat);
 

@@ -11,8 +11,8 @@ namespace Fuse {
 
 		public:
 
-			std::map<::Fuse::Event,int64_t> event_values;
-			::Fuse::Symbol symbol;
+			std::map<Fuse::Event,int64_t> event_values;
+			Fuse::Symbol symbol;
 			std::vector<int> label;
 			uint64_t start;
 			uint64_t end;
@@ -20,12 +20,12 @@ namespace Fuse {
 			bool is_gpu_eligible;
 
 			// Adds, replaces, or accumulates (via additive argument) an event value
-			void append_event_value(::Fuse::Event event, int64_t value, bool additive);
+			void append_event_value(Fuse::Event event, int64_t value, bool additive);
 
 			// Replacement will only occur if new value is greater than old
-			void append_max_event_value(::Fuse::Event event, int64_t value);
+			void append_max_event_value(Fuse::Event event, int64_t value);
 
-			int64_t get_event_value(::Fuse::Event event, bool& error);
+			int64_t get_event_value(Fuse::Event event, bool& error);
 
 			Instance();
 			~Instance();

@@ -10,7 +10,7 @@ Fuse::Instance::~Instance(){
 
 }
 
-void Fuse::Instance::append_event_value(::Fuse::Event event, int64_t value, bool additive){
+void Fuse::Instance::append_event_value(Fuse::Event event, int64_t value, bool additive){
 
 	if(additive){
 
@@ -25,7 +25,7 @@ void Fuse::Instance::append_event_value(::Fuse::Event event, int64_t value, bool
 
 }
 
-void Fuse::Instance::append_max_event_value(::Fuse::Event event, int64_t value){
+void Fuse::Instance::append_max_event_value(Fuse::Event event, int64_t value){
 
 	auto event_iter = this->event_values.find(event);
 	if(event_iter == this->event_values.end())
@@ -37,14 +37,14 @@ void Fuse::Instance::append_max_event_value(::Fuse::Event event, int64_t value){
 
 }
 
-int64_t Fuse::Instance::get_event_value(::Fuse::Event event, bool& error){
+int64_t Fuse::Instance::get_event_value(Fuse::Event event, bool& error){
 
 	auto event_iter = this->event_values.find(event);
 	if(event_iter == this->event_values.end()){
 		error = true;
 		return 0;
-	} 
-	
+	}
+
 	error = false;
 	return event_iter->second;
 

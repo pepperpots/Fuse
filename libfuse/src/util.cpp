@@ -30,7 +30,7 @@ void Fuse::Util::check_or_create_directory(std::string directory){
 
 std::string Fuse::Util::check_or_create_directory_from_filename(std::string filename){
 
-	auto directory = ::Fuse::Util::get_directory_from_filename(filename);
+	auto directory = Fuse::Util::get_directory_from_filename(filename);
 
 	struct stat sb;
 

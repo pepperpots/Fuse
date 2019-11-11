@@ -3,7 +3,6 @@
 #include "util.h"
 
 #include "spdlog/spdlog.h"
-#include "spdlog/sinks/basic_file_sink.h"
 #include "boost/icl/interval_map.hpp"
 
 #include <fstream>
@@ -22,7 +21,7 @@ extern "C" {
 Fuse::Execution_profile::Execution_profile(
 		std::string tracefile,
 		std::string benchmark,
-		::Fuse::Event_set filtered_events)
+		Fuse::Event_set filtered_events)
 	: tracefile(tracefile)
 	, benchmark(benchmark)
 	, filtered_events(filtered_events){
@@ -55,20 +54,20 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 
 }
 
-::Fuse::Event_set Fuse::Execution_profile::get_unique_events(){
+Fuse::Event_set Fuse::Execution_profile::get_unique_events(){
 
 	return this->events;
 
 }
 
-void Fuse::Execution_profile::add_event(::Fuse::Event event){
+void Fuse::Execution_profile::add_event(Fuse::Event event){
 
 	if(std::find(this->events.begin(),this->events.end(),event) == events.end())
 		this->events.push_back(event);
 
 }
 
-bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
+bool comp_instances_by_label_dfs(Fuse::Instance_p a, Fuse::Instance_p b){
 
 	int a_depth = a->label.size();
 	int b_depth = b->label.size();
@@ -85,9 +84,9 @@ bool comp_instances_by_label_dfs(::Fuse::Instance_p a, ::Fuse::Instance_p b){
 }
 
 // If symbols is empty (or not provided), then this will return all instances for all symbols
-std::vector<::Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<::Fuse::Symbol> symbols){
+std::vector<Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<Fuse::Symbol> symbols){
 
-	std::vector<::Fuse::Instance_p> all_instances;
+	std::vector<Fuse::Instance_p> all_instances;
 
 	for(auto symbol_pair : this->instances){
 
@@ -124,8 +123,8 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 	// Finish header according to (filtered or not) events
 	for(auto event : events)
 		header_ss << "," << event;
-	
-	spdlog::debug("The execution profile contains {}events {}.", (filtered ? "filtered " : ""), ::Fuse::Util::vector_to_string(events));
+
+	spdlog::debug("The execution profile contains {}events {}.", (filtered ? "filtered " : ""), Fuse::Util::vector_to_string(events));
 
 	std::ofstream out(output_file);
 
@@ -133,14 +132,14 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 		out << header_ss.str() << "\n";
 
-		std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+		std::vector<Fuse::Instance_p> all_instances = this->get_instances();
 		std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 		for(auto instance : all_instances){
 
 			std::stringstream ss;
 
-			ss << instance->cpu << "," << instance->symbol << "," << ::Fuse::Util::vector_to_string(instance->label, "-");
+			ss << instance->cpu << "," << instance->symbol << "," << Fuse::Util::vector_to_string(instance->label, "-");
 
 			if(filtered == false)
 				ss << "," << instance->is_gpu_eligible;
@@ -183,7 +182,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 
 	spdlog::info("Dumping the data-dependency DAG as a dense adjacency matrix to {}", output_file);
 
-	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 	spdlog::trace("Dumping the instance dependencies for {} instances, of which {} have dependencies.", all_instances.size(), this->instance_dependencies.size());
@@ -202,7 +201,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 	filestring += "\n";
 
 	for(auto instance : all_instances){
-		filestring += ::Fuse::Util::vector_to_string(instance->label,"-");
+		filestring += Fuse::Util::vector_to_string(instance->label,"-");
 		filestring += "\n";
 	}
 
@@ -274,7 +273,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	std::string filestring = "digraph D {\n";
 	graph << filestring;
 
-	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 	// Each label is associated with its ordered index in all_instances
@@ -290,7 +289,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 		if(instance->symbol == "runtime")
 			continue;
 
-		auto label_string = ::Fuse::Util::vector_to_string(instance->label,"-");
+		auto label_string = Fuse::Util::vector_to_string(instance->label,"-");
 
 		node_label_to_node_index.insert(std::make_pair(label_string,instance_idx));
 
@@ -311,12 +310,12 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 		// Find the instance with my parent's label
 		// Then draw an edge between my parent instance and me
 
-		auto my_label_string = ::Fuse::Util::vector_to_string(instance->label,"-");
+		auto my_label_string = Fuse::Util::vector_to_string(instance->label,"-");
 
 		auto parent_label = instance->label; // copy constructor
 		parent_label.pop_back(); // remove my child rank
 
-		auto parent_label_string = ::Fuse::Util::vector_to_string(parent_label,"-");
+		auto parent_label_string = Fuse::Util::vector_to_string(parent_label,"-");
 
 		auto parent_node_iter = node_label_to_node_index.find(parent_label_string);
 		if (parent_node_iter == node_label_to_node_index.end())
@@ -367,13 +366,13 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 
 }
 
-void Fuse::Execution_profile::add_instance(::Fuse::Instance_p instance){
+void Fuse::Execution_profile::add_instance(Fuse::Instance_p instance){
 
 	auto symbol_iter = this->instances.find(instance->symbol);
 
 	if(symbol_iter == this->instances.end()){
 
-		std::vector<::Fuse::Instance_p> symbol_instances = {instance};
+		std::vector<Fuse::Instance_p> symbol_instances = {instance};
 		this->instances.insert(std::make_pair(instance->symbol,symbol_instances));
 
 	} else {
@@ -391,8 +390,8 @@ void Fuse::Execution_profile::parse_instances_from_mes(struct multi_event_set* m
 
 struct data_access_time_compare {
 	bool operator()(
-			const std::pair<unsigned int, ::Fuse::Instance_p>& lhs,
-			const std::pair<unsigned int, ::Fuse::Instance_p>& rhs)
+			const std::pair<unsigned int, Fuse::Instance_p>& lhs,
+			const std::pair<unsigned int, Fuse::Instance_p>& rhs)
 			const {
 		return lhs.second->start < rhs.second->start;
 	}
@@ -432,15 +431,15 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 
 	// Frame maps to a queue of instances waiting to start executing
 	// The next TEXEC start with the appropriate frame will be the next instance in the queue
-	std::map<uint64_t, std::queue<::Fuse::Instance_p> > ready_instances_by_frame;
+	std::map<uint64_t, std::queue<Fuse::Instance_p> > ready_instances_by_frame;
 
 	// Each executing instance is paired with its label
-	std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > > executing_instances_by_cpu;
+	std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > > executing_instances_by_cpu;
 
 	// a particular interval is read or written by a particular instance
-	::boost::icl::interval_map<
+	boost::icl::interval_map<
 			uint64_t,
-			std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
+			std::set<std::pair<unsigned int, Fuse::Instance_p>, data_access_time_compare>
 			> data_accesses;
 
 	// top level instances are handled differently because there is no bounding START and END for those TCREATES
@@ -456,7 +455,7 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 	std::vector<int> ces_hints_per_cpu(mes->max_cpu+1, 0);
 
 	// Data structures for the 'runtime' instances, to track the behaviour of the 'non-work' execution
-	std::vector<::Fuse::Instance_p> runtime_instances_by_cpu;
+	std::vector<Fuse::Instance_p> runtime_instances_by_cpu;
 	std::vector<uint64_t> runtime_starts_by_cpu;
 	std::vector<uint64_t> partially_traced_state_time_by_cpu;
 	std::vector<unsigned int> next_state_event_idx_by_cpu;
@@ -561,8 +560,8 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 		struct multi_event_set* mes,
 		struct single_event* se,
 		std::vector<unsigned int>& next_state_event_idx_by_cpu,
-		std::vector<::Fuse::Instance_p>& runtime_instances_by_cpu,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		std::vector<Fuse::Instance_p>& runtime_instances_by_cpu,
+		std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		std::vector<uint64_t>& partially_traced_state_time_by_cpu,
 		std::vector<uint64_t>& runtime_starts_by_cpu
 		){
@@ -586,7 +585,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 			ss << "cycles_" << state_name;
 
 			std::string event_name = ss.str();
-			event_name = ::Fuse::Util::lowercase(event_name);
+			event_name = Fuse::Util::lowercase(event_name);
 			this->add_event(event_name);
 
 			// So first find what instance I should allocate the state cycles to
@@ -663,12 +662,12 @@ template <typename Compare>
 void Fuse::Execution_profile::update_data_accesses(
 		struct multi_event_set* mes,
 		struct single_event* se,
-		::boost::icl::interval_map<
+		boost::icl::interval_map<
 			uint64_t,
-			std::set<std::pair<unsigned int, ::Fuse::Instance_p>, Compare>
+			std::set<std::pair<unsigned int, Fuse::Instance_p>, Compare>
 			>& data_accesses,
 		std::vector<struct comm_event*>& all_comm_events,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		unsigned int& next_comm_event_idx,
 		unsigned int total_num_comm_events,
 		bool load_communication_matrix){
@@ -705,7 +704,7 @@ void Fuse::Execution_profile::update_data_accesses(
 						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
 						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
-						data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+						data_accesses += std::make_pair(boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
 					}
 
 					// Add the communication data to the instance
@@ -730,7 +729,7 @@ void Fuse::Execution_profile::update_data_accesses(
 						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
 						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
-						data_accesses += std::make_pair(::boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
+						data_accesses += std::make_pair(boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
 					}
 
 					std::stringstream ss;
@@ -763,14 +762,14 @@ void Fuse::Execution_profile::update_data_accesses(
 void Fuse::Execution_profile::process_openstream_instance_creation(
 			struct single_event* se,
 			struct frame* top_level_frame,
-			std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
-			std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+			std::map<uint64_t, std::queue<Fuse::Instance_p> >& ready_instances_by_frame,
+			std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 			unsigned int& top_level_instance_counter
 			){
 
 	spdlog::trace("Processing an OpenStream TCREATE on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
-	::Fuse::Instance_p instance(new Instance());
+	Fuse::Instance_p instance(new Instance());
 
 	// Set the appropriate label for this newly created instance
 	if(se->active_frame == top_level_frame){
@@ -794,7 +793,7 @@ void Fuse::Execution_profile::process_openstream_instance_creation(
 		// This is the first unstarted instance produced by the parent instance
 		// create the queue for the new frame and add it
 
-		std::queue<::Fuse::Instance_p> instances_waiting_for_execution({instance});
+		std::queue<Fuse::Instance_p> instances_waiting_for_execution({instance});
 		ready_instances_by_frame.insert(std::make_pair(se->what->addr, instances_waiting_for_execution));
 
 	} else {
@@ -809,8 +808,8 @@ void Fuse::Execution_profile::process_openstream_instance_creation(
 
 void Fuse::Execution_profile::process_openstream_instance_start(
 		struct single_event* se,
-		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu
+		std::map<uint64_t, std::queue<Fuse::Instance_p> >& ready_instances_by_frame,
+		std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu
 		){
 
 	spdlog::trace("Processing an OpenStream TEXEC_START on cpu {} at timestamp {}", se->event_set->cpu, se->time);
@@ -858,7 +857,7 @@ void Fuse::Execution_profile::process_openstream_instance_start(
 
 void Fuse::Execution_profile::process_openstream_instance_end(
 		struct single_event* se,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 		std::vector<uint64_t>& runtime_starts_by_cpu,
 		std::vector<int>& ces_hints_per_cpu
 		){
@@ -892,9 +891,9 @@ void Fuse::Execution_profile::process_openstream_instance_end(
 void Fuse::Execution_profile::process_next_openstream_single_event(
 		struct single_event* se,
 		struct frame* top_level_frame,
-		std::map<uint64_t, std::queue<::Fuse::Instance_p> >& ready_instances_by_frame,
-		std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
-		std::vector<::Fuse::Instance_p>& runtime_instances_by_cpu,
+		std::map<uint64_t, std::queue<Fuse::Instance_p> >& ready_instances_by_frame,
+		std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+		std::vector<Fuse::Instance_p>& runtime_instances_by_cpu,
 		std::vector<uint64_t>& runtime_starts_by_cpu,
 		std::vector<int>& ces_hints_per_cpu,
 		unsigned int& top_level_instance_counter){
@@ -975,15 +974,15 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 
 template <typename Compare>
 void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<struct comm_event*> all_comm_events,
-		::boost::icl::interval_map<
+		boost::icl::interval_map<
 			uint64_t,
-			std::set<std::pair<unsigned int, ::Fuse::Instance_p>, Compare>
+			std::set<std::pair<unsigned int, Fuse::Instance_p>, Compare>
 			>& data_accesses
 		){
 
 	spdlog::trace("Loading openstream instance dependencies.");
 
-	std::vector<::Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 	spdlog::trace("There are {} data intervals that are accessed.", data_accesses.iterative_size());
@@ -996,8 +995,8 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 		// this set is ordered by instance start time
 		auto accesses = interval_iter.second;
 
-		std::vector<::Fuse::Instance_p> consumer_instances;
-		std::vector<::Fuse::Instance_p> producer_instances;
+		std::vector<Fuse::Instance_p> consumer_instances;
+		std::vector<Fuse::Instance_p> producer_instances;
 
 		for(auto interval_access_iter : accesses){
 			switch(interval_access_iter.first){
@@ -1032,8 +1031,8 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 
 			auto instance_dependency_iter = this->instance_dependencies.find(consumer);
 			if(instance_dependency_iter == instance_dependencies.end()){
-				std::set<::Fuse::Instance_p> this_consumer_depends_on;
-				std::set<::Fuse::Instance_p> this_consumer_produces_for;
+				std::set<Fuse::Instance_p> this_consumer_depends_on;
+				std::set<Fuse::Instance_p> this_consumer_produces_for;
 				this_consumer_depends_on.insert(producer);
 
 				this->instance_dependencies[consumer] = std::make_pair(this_consumer_depends_on, this_consumer_produces_for);
@@ -1050,7 +1049,7 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 }
 
 void Fuse::Execution_profile::interpolate_and_append_counter_values(
-		::Fuse::Instance_p instance,
+		Fuse::Instance_p instance,
 		uint64_t start_time,
 		uint64_t end_time,
 		struct event_set* es,
@@ -1072,7 +1071,7 @@ void Fuse::Execution_profile::interpolate_and_append_counter_values(
 		struct counter_event_set* ces = &es->counter_event_sets[ctr_ev_idx];
 
 		std::string event_name(ces->desc->name);
-		event_name = ::Fuse::Util::lowercase(event_name);
+		event_name = Fuse::Util::lowercase(event_name);
 
 		if(this->filtered_events.size() > 0
 				&& std::find(this->filtered_events.begin(), this->filtered_events.end(), event_name) == this->filtered_events.end())
@@ -1137,20 +1136,20 @@ void Fuse::Execution_profile::parse_openmp_instances(struct multi_event_set* mes
 template void Fuse::Execution_profile::update_data_accesses<data_access_time_compare>(
 	struct multi_event_set* mes,
 	struct single_event* se,
-	::boost::icl::interval_map<
+	boost::icl::interval_map<
 		uint64_t,
-		std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
+		std::set<std::pair<unsigned int, Fuse::Instance_p>, data_access_time_compare>
 		>& data_accesses,
 	std::vector<struct comm_event*>& all_comm_events,
-	std::map<int, std::pair<::Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
+	std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 	unsigned int& next_comm_event_idx,
 	unsigned int total_num_comm_events,
 	bool load_communication_matrix);
 
 template void Fuse::Execution_profile::load_openstream_instance_dependencies<data_access_time_compare>(
 	std::vector<struct comm_event*> all_comm_events,
-	::boost::icl::interval_map<
+	boost::icl::interval_map<
 		uint64_t,
-		std::set<std::pair<unsigned int, ::Fuse::Instance_p>, data_access_time_compare>
+		std::set<std::pair<unsigned int, Fuse::Instance_p>, data_access_time_compare>
 		>& data_accesses
 	);

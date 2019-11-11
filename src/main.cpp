@@ -98,7 +98,7 @@ void initialize_logging(std::string logging_directory, unsigned int log_level){
 		default:
 			spdlog::warn("Log level {} is invalid so defaulting to 1 (INFO). See help for log level options.",log_level);
 	};
-	
+
 	// Initialize this client application logging using the same sinks
 	spdlog::set_default_logger(logger);
 
@@ -123,7 +123,7 @@ void run_main_options(cxxopts::ParseResult options_parse_result){
 	std::string target_dir = options_parse_result["tracefile"].as<std::string>();
 
 	Fuse::Target fuse_target(target_dir);
-	
+
 
 
 }
@@ -215,7 +215,7 @@ int main(int argc, char** argv){
 
 		run_options(options, options_parse_result, main_options, utility_options);
 
-	} catch (const std::exception &e){
+	} catch (const std::exception& e){
 		spdlog::error(e.what());
 		return 1;
 	}

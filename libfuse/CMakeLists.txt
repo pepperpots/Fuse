@@ -23,6 +23,7 @@ add_library(fuse SHARED
 	src/profile.cpp
 	src/instance.cpp
 	src/util.cpp
+	src/fuse_types.cpp
 )
 
 find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
@@ -35,8 +36,10 @@ add_subdirectory(external/spdlog)
 unset(SPDLOG_BUILD_SHARED)
 
 set(BUILD_TESTING OFF CACHE BOOL "Build JSON tests" FORCE)
+set(JSON_MultipleHeaders ON CACHE BOOL "Build JSON multiple headers" FORCE) # for forward declaration header
 add_subdirectory(external/json)
 unset(BUILD_TESTING)
+unset(JSON_MultipleHeaders)
 
 target_include_directories(fuse PRIVATE
 	external/spdlog/include
