@@ -25,6 +25,7 @@ namespace Fuse {
 			std::string tracefiles_directory;
 			std::string combinations_directory;
 			std::string papi_directory;
+			std::string logs_directory;
 			std::string statistics_filename;
 
 			std::vector<Event_set> reference_sets;
@@ -42,9 +43,17 @@ namespace Fuse {
 			bool modified;
 
 		public:
-
 			Target(std::string target_dir);
 
+			Fuse::Combination_sequence get_sequence(bool minimal);
+			unsigned int get_num_sequence_repeats(bool minimal);
+			void increment_num_sequence_repeats(bool minimal);
+
+			Fuse::Runtime get_target_runtime();
+			std::string get_target_binary();
+			std::string get_target_args();
+			std::string get_logs_directory();
+			std::string get_tracefiles_directory();
 			void save();
 
 		private:

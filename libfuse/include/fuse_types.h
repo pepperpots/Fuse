@@ -28,6 +28,7 @@ namespace Fuse {
 	typedef std::string Event;
 	typedef std::vector<Event> Event_set;
 	struct Sequence_part {
+		unsigned int part_idx;
 		Event_set overlapping;
 		Event_set unique;
 	};

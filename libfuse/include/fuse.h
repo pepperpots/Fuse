@@ -6,6 +6,7 @@
 #include "instance.h"
 #include "target.h"
 #include "profile.h"
+#include "profiling.h"
 
 #include <memory>
 #include <string>
@@ -23,15 +24,13 @@ namespace spdlog {
 
 namespace Fuse {
 
-	/*
-	* Global functions
-	*/
+	/* Initialize or reinitialize library-managed logging */
+	void initialize_logging(std::string log_directory, bool log_to_file, unsigned int log_level);
 
-	/* Initialize logging within the library, connected to the same spdlog sinks used by the client application */
-	std::shared_ptr<spdlog::logger> initialize(std::vector<spdlog::sink_ptr> sinks,	unsigned int log_level);
+	/* Initialize or reinitialize logging using provided sinks, and return the logger to share by both client and library */
+	std::shared_ptr<spdlog::logger> initialize_logging(std::vector<spdlog::sink_ptr> sinks,	unsigned int log_level);
 
-	/* Initialize logging within the library, disconnected from spdlogging (or lack thereof) in the client application */
-	void initialize(std::string log_directory, unsigned int log_level, bool log_to_file);
+	void execute_sequence(Fuse::Target target, unsigned int number_of_executions, bool minimal);
 
 }
 

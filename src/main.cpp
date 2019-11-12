@@ -4,7 +4,7 @@
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include "spdlog/sinks/stdout_color_sinks.h"
 
 #include <iostream>
 #include <iomanip>
@@ -15,7 +15,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 	cxxopts::Options options(argv, "Configuration is given with command line options:");
 	options.add_options("Miscellaneous")
 		("h,help", "Print this help.")
-		("log_level", "Set minimum logging level. Argument is integer position in {warn, info, debug, trace}. Defaults to info.", cxxopts::value<unsigned int>()->default_value("1"));
+		("log_level", "Set minimum logging level. Argument is integer position in {trace, debug, info, warn}. Defaults to info.", cxxopts::value<unsigned int>()->default_value("2"));
 
 	options.add_options("Main")
 		("d,target_dir", "Target Fuse target directory (containing fuse.json).", cxxopts::value<std::string>())
@@ -32,7 +32,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 	options.add_options("Parameter")
 		("strategies", "Comma-separated list of strategies from {'random','ctc','lgl','bc','hem'}.",cxxopts::value<std::string>())
-		("minimal", "Use minimal execution profiles (default is non-minimal). Strategy will override: 'bc' and 'hem' cannot use minimal).")
+		("minimal", "Use minimal execution profiles (default is non-minimal). Strategy will override: 'bc' and 'hem' cannot use minimal).", cxxopts::value<bool>()->default_value("false"))
 		("tracefile", "Argument is the tracefile to load for utility options.", cxxopts::value<std::string>())
 		("benchmark", "Argument is the benchmark to use when loading tracefile for utility options.", cxxopts::value<std::string>());
 
@@ -51,78 +51,82 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 }
 
-void initialize_logging(std::string logging_directory, unsigned int log_level){
+void initialize_logging(std::string logging_directory, unsigned int log_level, bool log_to_file){
 
 	std::string logger_name = "fuse";
 	auto logger = spdlog::get(logger_name);
-	if(logger)
+	if(logger){
+		spdlog::debug("Reinitializing logging to use log directory {}", logging_directory);
 		spdlog::drop_all();
+	}
 
-	// Filename is the current datetime
-	auto t = std::time(nullptr);
-	auto tm = *std::localtime(&t);
-
-	std::ostringstream oss;
-	oss << logging_directory << std::put_time(&tm, "/%Y%m%d.%H%M.log");
-	auto log_filename = oss.str();
-
-	auto directory = Fuse::Util::check_or_create_directory_from_filename(log_filename);
-
-	// Set up sinks for stdout and file logging
-	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-	auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename);
-
+	// Set up sinks for the logging
 	std::vector<spdlog::sink_ptr> sinks;
+
+	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 	sinks.push_back(console_sink);
-	sinks.push_back(file_sink);
+
+	if(log_to_file){
+		// Filename is the current datetime
+		auto t = std::time(nullptr);
+		auto tm = *std::localtime(&t);
+
+		std::ostringstream oss;
+		oss << logging_directory << std::put_time(&tm, "/%Y%m%d.%H%M.log");
+		auto log_filename = oss.str();
+
+		auto directory = Fuse::Util::check_or_create_directory_from_filename(log_filename);
+		auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename);
+		sinks.push_back(file_sink);
+	}
 
 	// Initialize fuse library logging to those sinks
-	logger = Fuse::initialize(sinks, log_level);
+	logger = Fuse::initialize_logging(sinks, log_level);
 
 	logger->set_pattern("[%Y-%m-%d %H:%M:%S] [%n] [%^%l%$]: %v");
 
 	// Set log level
 	switch(log_level) {
-		case 0:
+		case 3:
 			logger->set_level(spdlog::level::warn);
 			break;
-		case 1:
+		case 2:
 			logger->set_level(spdlog::level::info);
 			break;
-		case 2:
+		case 1:
 			logger->set_level(spdlog::level::debug);
 			break;
-		case 3:
+		case 0:
 			logger->set_level(spdlog::level::trace);
 			break;
 		default:
-			spdlog::warn("Log level {} is invalid so defaulting to 1 (INFO). See help for log level options.",log_level);
+			spdlog::warn("Log level {} is invalid so defaulting to 2 (INFO). See help for log level options.",log_level);
 	};
 
 	// Initialize this client application logging using the same sinks
 	spdlog::set_default_logger(logger);
 
-	spdlog::debug("Logging to filename {}.", log_filename);
-
 }
 
 void run_main_options(cxxopts::ParseResult options_parse_result){
-
-	/*
-		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal'.", cxxopts::value<unsigned int>())
-		("m,combine_sequence", "Combine the sequence. Conditioned by 'strategies' and 'minimal'.")
-		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'minimal', and 'accuracy_metric'.")
-		("r,execute_references", "Execute the reference execution profiles.")
-		("c,run_calibration", "Run EPD calibration on the reference profiles.");
-	*/
 
 	/* All of these options operate on a target Fuse folder, so load its json */
 
 	if(!options_parse_result.count("target_dir"))
 		throw std::invalid_argument("Must provide the target fuse folder (containing fuse.json) as option 'target_dir'");
-	std::string target_dir = options_parse_result["tracefile"].as<std::string>();
+
+	std::string target_dir = options_parse_result["target_dir"].as<std::string>();
 
 	Fuse::Target fuse_target(target_dir);
+	initialize_logging(fuse_target.get_logs_directory(), spdlog::get("fuse")->level(), true); // We log the target stuff to file
+
+	/* Now run the requested functions on the target */
+
+	if(options_parse_result.count("execute_sequence")){
+		unsigned int number_of_executions = options_parse_result["execute_sequence"].as<unsigned int>();
+		bool minimal = options_parse_result["minimal"].as<bool>();
+		Fuse::execute_sequence(fuse_target, number_of_executions, minimal);
+	}
 
 }
 
@@ -173,6 +177,8 @@ void run_options(const cxxopts::Options options,
 		const std::vector<std::string> main_options,
 		const std::vector<std::string> utility_options){
 
+	spdlog::info("Running Fuse.");
+
 	bool opt_given = false;
 
 	if(std::any_of(std::begin(utility_options), std::end(utility_options), [&](std::string opt) {
@@ -206,15 +212,16 @@ int main(int argc, char** argv){
 		return 0;
 	}
 
-	// initialise logging (external to the target directory)
-	initialize_logging("/tmp/libfuse_logs",options_parse_result["log_level"].as<unsigned int>());
+	// initialize logging (external to the target directory)
+	// For now, we don't log the non-target stuff to file
+	initialize_logging("",options_parse_result["log_level"].as<unsigned int>(), false);
 
 	try {
 
 		run_options(options, options_parse_result, main_options, utility_options);
 
 	} catch (const std::exception& e){
-		spdlog::error(e.what());
+		spdlog::error("Exception: {}", e.what());
 		return 1;
 	}
 

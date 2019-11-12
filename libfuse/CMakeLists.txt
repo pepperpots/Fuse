@@ -24,6 +24,7 @@ add_library(fuse SHARED
 	src/instance.cpp
 	src/util.cpp
 	src/fuse_types.cpp
+	src/profiling.cpp
 )
 
 find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
