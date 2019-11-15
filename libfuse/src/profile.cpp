@@ -36,6 +36,10 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 	// load the instances from the tracefile into the map, using the aftermath calls
 	spdlog::info("Loading tracefile {}.", this->tracefile);
 
+	bool exists = Fuse::Util::check_file_existance(this->tracefile);
+	if(exists == false)
+		throw std::runtime_error(fmt::format("The tracefile to be loaded '{}' does not exist.", this->tracefile));
+
   struct multi_event_set* mes = new multi_event_set;
   multi_event_set_init(mes);
 
@@ -56,9 +60,17 @@ void Fuse::Execution_profile::load_from_tracefile(bool load_communication_matrix
 }
 
 Fuse::Event_set Fuse::Execution_profile::get_unique_events(){
-
 	return this->events;
+}
 
+std::vector<Fuse::Symbol> Fuse::Execution_profile::get_unique_symbols(){
+
+	std::vector<Fuse::Symbol> unique_symbols;
+	for(auto symbol_pair : this->instances)
+		if(std::find(unique_symbols.begin(), unique_symbols.end(), symbol_pair.first) == unique_symbols.end())
+			unique_symbols.push_back(symbol_pair.first);
+
+	return unique_symbols;
 }
 
 void Fuse::Execution_profile::add_event(Fuse::Event event){
@@ -66,22 +78,6 @@ void Fuse::Execution_profile::add_event(Fuse::Event event){
 	if(std::find(this->events.begin(),this->events.end(),event) == events.end())
 		this->events.push_back(event);
 
-}
-
-bool comp_instances_by_label_dfs(Fuse::Instance_p a, Fuse::Instance_p b){
-
-	int a_depth = a->label.size();
-	int b_depth = b->label.size();
-
-	for(unsigned int i=0; i<a_depth && i<b_depth; i++){
-		if(a->label.at(i) < b->label.at(i))
-			return true;
-
-		if(b->label.at(i) < a->label.at(i))
-			return false;
-	}
-
-	return (a_depth < b_depth);
 }
 
 // If symbols is empty (or not provided), then this will return all instances for all symbols
@@ -209,7 +205,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 	dense_adj << filestring;
 
 	// Now print the adjacency matrix
-	for(int consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
+	for(decltype(all_instances.size()) consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
 
 		filestring = "";
 
@@ -220,7 +216,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 		if(depend_iter == this->instance_dependencies.end()){
 			// There are no dependencies for this instance
 
-			for(int potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
+			for(decltype(all_instances.size()) potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
 				filestring += "0,";
 			}
 			filestring.pop_back(); // get rid of the trailing delimiter
@@ -238,7 +234,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 		}
 
 		// Go through all the instances that the consumer might depend on
-		for(int potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
+		for(decltype(all_instances.size()) potential_producer_idx = 0; potential_producer_idx < all_instances.size(); potential_producer_idx++){
 
 			// I am iterating the potential_producers in order, so check if this one is the next in my ordered producer list
 
@@ -284,7 +280,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	filestring = "";
 
 	// First, declare all the instances as nodes
-	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
+	for(decltype(all_instances.size()) instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
 
 		auto instance = all_instances.at(instance_idx);
 		if(instance->symbol == "runtime")
@@ -302,7 +298,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	filestring = "";
 
 	// Next, define all the instance-creation edges
-	for(int instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
+	for(decltype(all_instances.size()) instance_idx = 0; instance_idx < all_instances.size(); instance_idx++){
 
 		auto instance = all_instances.at(instance_idx);
 		if(instance->symbol == "runtime")
@@ -332,7 +328,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	graph << filestring;
 
 	// Next, define the data-dependencies
-	for(int consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
+	for(decltype(all_instances.size()) consumer_idx = 0; consumer_idx < all_instances.size(); consumer_idx++){
 
 		filestring = "";
 
@@ -462,7 +458,7 @@ void Fuse::Execution_profile::parse_openstream_instances(struct multi_event_set*
 	std::vector<unsigned int> next_state_event_idx_by_cpu;
 	for(int cpu_idx = mes->min_cpu; cpu_idx <= mes->max_cpu; cpu_idx++){
 
-		Instance_p runtime_instance(new Instance());
+		Fuse::Instance_p runtime_instance(new Fuse::Instance());
 		std::vector<int> label = {(-cpu_idx - 1)};
 		runtime_instance->label = label;
 		runtime_instance->cpu = cpu_idx;
@@ -591,7 +587,7 @@ void Fuse::Execution_profile::allocate_cycles_in_state(
 
 			// So first find what instance I should allocate the state cycles to
 
-			Instance_p responsible_instance;
+			Fuse::Instance_p responsible_instance;
 			auto executing_iter = executing_instances_by_cpu.find(single_event_cpu);
 			bool should_add = true;
 			if(executing_iter == executing_instances_by_cpu.end()){
@@ -698,11 +694,11 @@ void Fuse::Execution_profile::update_data_accesses(
 					if(executing_iter == executing_instances_by_cpu.end())
 						throw std::runtime_error("There is no executing instance for a read communication event");
 
-					Instance_p responsible_instance = executing_iter->second.first;
+					Fuse::Instance_p responsible_instance = executing_iter->second.first;
 
 					if(load_communication_matrix){
 						// add the access to the interval map to later determine dependencies
-						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
+						std::set<std::pair<unsigned int, Fuse::Instance_p>, data_access_time_compare> access;
 						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
 						data_accesses += std::make_pair(boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
@@ -723,11 +719,11 @@ void Fuse::Execution_profile::update_data_accesses(
 					if(executing_iter == executing_instances_by_cpu.end())
 						throw std::runtime_error("There is no executing instance for a write communication event");
 
-					Instance_p responsible_instance = executing_iter->second.first;
+					Fuse::Instance_p responsible_instance = executing_iter->second.first;
 
 					if(load_communication_matrix){
 						// add the access to the interval map to later determine dependencies
-						std::set<std::pair<unsigned int, Instance_p>, data_access_time_compare> access;
+						std::set<std::pair<unsigned int, Fuse::Instance_p>, data_access_time_compare> access;
 						access.insert(std::make_pair((unsigned int)ce->type,responsible_instance));
 
 						data_accesses += std::make_pair(boost::icl::interval<uint64_t>::right_open((uint64_t)ce->what->addr,((uint64_t)ce->what->addr)+(ce->size)), access);
@@ -741,6 +737,8 @@ void Fuse::Execution_profile::update_data_accesses(
 
 					break;
 				}
+				default:
+					break;
 
 			}
 
@@ -770,7 +768,7 @@ void Fuse::Execution_profile::process_openstream_instance_creation(
 
 	spdlog::trace("Processing an OpenStream TCREATE on cpu {} at timestamp {}", se->event_set->cpu, se->time);
 
-	Fuse::Instance_p instance(new Instance());
+	Fuse::Instance_p instance(new Fuse::Instance());
 
 	// Set the appropriate label for this newly created instance
 	if(se->active_frame == top_level_frame){
@@ -924,7 +922,7 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 			// We assume that there was a period of 'non-work' (runtime system execution) immediately preceeding this instance start
 			// Therefore, add counter values for the prior runtime instance
 			if(runtime_starts_by_cpu.at(single_event_cpu) != 0){
-				Instance_p runtime_instance = runtime_instances_by_cpu.at(single_event_cpu);
+				Fuse::Instance_p runtime_instance = runtime_instances_by_cpu.at(single_event_cpu);
 				uint64_t start_time = runtime_starts_by_cpu.at(single_event_cpu);
 				uint64_t end_time = se->time;
 
@@ -969,6 +967,8 @@ void Fuse::Execution_profile::process_next_openstream_single_event(
 
 			break;
 		}
+		default:
+			break;
 	}
 
 }

@@ -1,6 +1,10 @@
 #include "fuse.h"
 #include "config.h"
 #include "target.h"
+#include "combination.h"
+#include "profiling.h"
+#include "instance.h"
+#include "statistics.h"
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
@@ -122,9 +126,14 @@ std::shared_ptr<spdlog::logger> Fuse::initialize_logging(std::vector<spdlog::sin
 
 }
 
-void Fuse::execute_sequence(Fuse::Target target, unsigned int number_of_repeats, bool minimal){
+void Fuse::execute_sequence_repeats(
+		Fuse::Target target,
+		unsigned int number_of_repeats,
+		bool minimal,
+		bool keep_in_memory
+		){
 
-	auto minimal_str = minimal ? "minimal" : "non-minimal";
+	auto minimal_str = minimal ? "minimal" : "non_minimal";
 	spdlog::info("Executing {} repeats of the {} sequence profiles.", number_of_repeats, minimal_str);
 
 	unsigned int current_idx = target.get_num_sequence_repeats(minimal);
@@ -141,22 +150,29 @@ void Fuse::execute_sequence(Fuse::Target target, unsigned int number_of_repeats,
 		for(auto part : sequence){
 
 			std::stringstream ss;
-			ss << target.get_tracefiles_directory() << "/combined_profile_" << instance_idx << "-" << part.part_idx << ".ost";
+			ss << target.get_tracefiles_directory() << "/" << minimal_str << "_";
+			ss << "sequence_profile_" << instance_idx << "-" << part.part_idx << ".ost";
 			auto tracefile = ss.str();
 
 			Fuse::Event_set profiled_events = part.unique;
 			profiled_events.insert(profiled_events.end(), part.overlapping.begin(), part.overlapping.end());
 
+			// Execute and load to ensure the profile loads successfully
 			Fuse::Profile_p execution_profile = Fuse::Profiling::execute_and_load(
+				target.get_filtered_events(),
 				target.get_target_runtime(),
 				target.get_target_binary(),
 				target.get_target_args(),
 				tracefile,
-				profiled_events
+				profiled_events,
+				target.get_should_clear_cache()
 			);
 
-			// TODO Do I want to keep this profile in memory?
-			// target.add_loaded_sequence_profile(part, execution_profile, ...)
+			// Add the event statistics
+			Fuse::add_profile_event_values_to_statistics(execution_profile, target.get_statistics());
+
+			if(keep_in_memory)
+				target.store_loaded_sequence_profile(instance_idx, part, execution_profile, minimal);
 
 		}
 
@@ -173,3 +189,139 @@ void Fuse::execute_sequence(Fuse::Target target, unsigned int number_of_repeats,
 		minimal_str);
 
 }
+
+void Fuse::execute_hem_repeats(
+		Fuse::Target target,
+		unsigned int number_of_repeats,
+		bool keep_in_memory
+		){
+
+	spdlog::info("Executing {} repeats of the HEM profile.", number_of_repeats);
+
+	unsigned int current_idx = target.get_num_combined_profiles(Fuse::Strategy::HEM);
+
+	for(unsigned int instance_idx = current_idx; instance_idx < (current_idx+number_of_repeats); instance_idx++){
+
+		spdlog::debug("Executing the HEM profile for repeat index {}.", instance_idx);
+
+		std::stringstream ss;
+		ss << target.get_tracefiles_directory() << "/hem_profile_" << instance_idx << ".ost";
+		auto tracefile = ss.str();
+		Fuse::Event_set profiled_events = target.get_target_events();
+
+		bool should_multiplex = true;
+
+		// Execute and load to ensure the profile loads successfully
+		Fuse::Profile_p execution_profile = Fuse::Profiling::execute_and_load(
+			target.get_filtered_events(),
+			target.get_target_runtime(),
+			target.get_target_binary(),
+			target.get_target_args(),
+			tracefile,
+			profiled_events,
+			target.get_should_clear_cache(),
+			should_multiplex
+		);
+
+		target.register_new_combined_profile(Fuse::Strategy::HEM, instance_idx, execution_profile);
+
+		if(keep_in_memory)
+			target.store_combined_profile(instance_idx, Fuse::Strategy::HEM, execution_profile);
+
+	}
+
+	target.save();
+
+	spdlog::info("Finished executing {} HEM profiles. Target now has {} HEM profiles.",
+		number_of_repeats,
+		target.get_num_combined_profiles(Fuse::Strategy::HEM)
+	);
+
+}
+
+void Fuse::combine_sequence_repeats(
+		Fuse::Target target,
+		std::vector<Fuse::Strategy> strategies,
+		std::vector<unsigned int> repeat_indexes,
+		bool minimal,
+		bool keep_in_memory
+		){
+
+	auto minimal_str = minimal ? "minimal" : "non_minimal";
+	spdlog::info("Running {} combinations (for the repeat indexes {}) of the {} sequence profiles.",
+		repeat_indexes.size(),
+		Fuse::Util::vector_to_string(repeat_indexes),
+		minimal_str);
+
+	for(auto repeat_idx : repeat_indexes){
+
+		spdlog::debug("Getting {} sequence profiles for repeat index {}.", minimal_str, repeat_idx);
+		std::vector<Fuse::Profile_p> sequence_profiles = target.load_and_retrieve_sequence_profiles(repeat_idx, minimal);
+
+		for(auto strategy : strategies){
+
+			if(strategy == Fuse::Strategy::HEM){
+				spdlog::info("Cannot combine sequence profiles via HEM. Ignoring this strategy.");
+				continue;
+			}
+
+			// Check if we have already combined this repeat index with this strategy
+			if(target.combined_profile_exists(strategy, repeat_idx)){
+				spdlog::info("The repeat index {} has already been combined via strategy {}. Continuing.", Fuse::convert_strategy_to_string(strategy));
+				continue;
+			}
+
+			spdlog::info("Combining sequence profiles for repeat index {} via strategy {}.", repeat_idx, Fuse::convert_strategy_to_string(strategy));
+
+			std::vector<Fuse::Event_set> overlapping_events;
+			if(strategy == Fuse::Strategy::BC){
+				Fuse::Combination_sequence bc_sequence = target.get_sequence(minimal);
+				for(auto part : bc_sequence)
+					overlapping_events.push_back(part.overlapping);
+			}
+
+			Fuse::Profile_p combined_profile = Fuse::Combination::combine_profiles_via_strategy(
+				sequence_profiles,
+				strategy,
+				target.get_combination_filename(strategy, repeat_idx),
+				target.get_target_binary(),
+				overlapping_events,
+				target.get_statistics()
+			);
+
+			target.register_new_combined_profile(strategy, repeat_idx, combined_profile);
+
+			if(keep_in_memory)
+				target.store_combined_profile(repeat_idx, strategy, combined_profile);
+
+			spdlog::info("Finished combining the sequence profiles for repeat index {} via strategy {}.", repeat_idx, Fuse::convert_strategy_to_string(strategy));
+		}
+
+	}
+
+}
+
+void Fuse::add_profile_event_values_to_statistics(
+		Fuse::Profile_p profile,
+		Fuse::Statistics_p statistics
+		){
+
+	auto instances = profile->get_instances();
+	auto events = profile->get_unique_events();
+
+	// If error, then we are assuming there were no events of that type during the instance
+	bool error = false;
+	for(auto instance : instances){
+		for(auto event : events){
+
+			auto value = instance->get_event_value(event, error);
+			statistics->add_event_value(event, value, instance->symbol);
+
+		}
+	}
+}
+
+
+
+
+

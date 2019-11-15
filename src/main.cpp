@@ -6,9 +6,10 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
-#include <iostream>
-#include <iomanip>
 #include <ctime>
+#include <iomanip>
+#include <iostream>
+#include <numeric>
 
 cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_options, std::vector<std::string>& utility_options){
 
@@ -19,11 +20,12 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 	options.add_options("Main")
 		("d,target_dir", "Target Fuse target directory (containing fuse.json).", cxxopts::value<std::string>())
-		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal'.", cxxopts::value<unsigned int>())
-		("m,combine_sequence", "Combine the sequence. Conditioned by 'strategies' and 'minimal'.")
-		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'minimal', and 'accuracy_metric'.")
-		("r,execute_references", "Execute the reference execution profiles.")
-		("c,run_calibration", "Run EPD calibration on the reference profiles.");
+		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal', 'filter_events'.", cxxopts::value<unsigned int>())
+		("m,combine_sequence", "Combine the sequence repeats. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'filter_events'.")
+		("h,execute_hem", "Execute the HEM execution profile. Argument is number of repeat executions. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
+		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'accuracy_metric', 'filter_events'.")
+		("r,execute_references", "Execute the reference execution profiles. Conditioned by 'filter_events'.")
+		("c,run_calibration", "Run EPD calibration on the reference profiles. Conditioned by 'filter_events'.");
 
 	options.add_options("Utility")
 		("dump_instances", "Dumps an execution profile matrix. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>())
@@ -32,7 +34,9 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 	options.add_options("Parameter")
 		("strategies", "Comma-separated list of strategies from {'random','ctc','lgl','bc','hem'}.",cxxopts::value<std::string>())
-		("minimal", "Use minimal execution profiles (default is non-minimal). Strategy will override: 'bc' and 'hem' cannot use minimal).", cxxopts::value<bool>()->default_value("false"))
+		("repeat_indexes", "Comma-separated list of sequence repeat indexes to operate on, or 'all'. Defaults t all repeat indexes.",cxxopts::value<std::string>()->default_value("all"))
+		("minimal", "Use minimal execution profiles (default is non-minimal). Strategies 'bc' and 'hem' cannot use minimal.", cxxopts::value<bool>()->default_value("false"))
+		("filter_events", "Main options only load and dump data for the events defined in the target JSON (i.e. exclude non HPM events). Default is false.", cxxopts::value<bool>()->default_value("false"))
 		("tracefile", "Argument is the tracefile to load for utility options.", cxxopts::value<std::string>())
 		("benchmark", "Argument is the benchmark to use when loading tracefile for utility options.", cxxopts::value<std::string>());
 
@@ -108,7 +112,89 @@ void initialize_logging(std::string logging_directory, unsigned int log_level, b
 
 }
 
-void run_main_options(cxxopts::ParseResult options_parse_result){
+std::vector<Fuse::Strategy> parse_strategies_option(
+		const cxxopts::ParseResult& options_parse_result,
+		bool minimal
+		){
+
+	if(options_parse_result.count("strategies") == false)
+		throw std::invalid_argument("To run Fuse with this configuration, the 'strategies' option must be provided.");
+
+	auto strategies_str = options_parse_result["strategies"].as<std::string>();
+
+	std::vector<Fuse::Strategy> strategies;
+
+	for(auto strategy_str : Fuse::Util::split_string_to_vector(strategies_str, ',')){
+		auto strategy = Fuse::convert_string_to_strategy(strategy_str, minimal);
+		strategies.push_back(strategy);
+	}
+
+	return strategies;
+}
+
+std::vector<unsigned int> parse_repeat_indexes_option(
+		const cxxopts::ParseResult& options_parse_result,
+		Fuse::Target& fuse_target,
+		bool minimal,
+		std::vector<Fuse::Strategy> strategies
+		){
+
+	std::vector<unsigned int> repeat_indexes;
+
+	auto indexes_str = options_parse_result["repeat_indexes"].as<std::string>();
+
+	auto num_executed_instances = fuse_target.get_num_sequence_repeats(minimal);
+
+	std::string strategies_str = "";
+	for(auto strategy : strategies)
+		strategies_str += Fuse::convert_strategy_to_string(strategy) + ",";
+	strategies_str = strategies_str.substr(0,strategies_str.size()-2);
+
+	if(std::find(strategies.begin(), strategies.end(), Fuse::Strategy::HEM) != strategies.end()){
+		auto num_hem_instances = fuse_target.get_num_combined_profiles(Fuse::Strategy::HEM);
+		if(strategies.size() == 1)
+			num_executed_instances = num_hem_instances;
+		else if(num_hem_instances < num_executed_instances)
+			num_executed_instances = num_hem_instances;
+	}
+
+	if(num_executed_instances == 0)
+		throw std::runtime_error(fmt::format("There are no available repeat indexes common to strategies {}, so cannot operate on them.",
+			strategies_str));
+
+	if(indexes_str == "all"){
+
+		repeat_indexes.assign(num_executed_instances,0);
+		std::iota(repeat_indexes.begin(), repeat_indexes.end(), 0);
+
+	} else {
+
+		for(auto index_str : Fuse::Util::split_string_to_vector(indexes_str, ',')){
+			unsigned int repeat_idx = 0;
+
+			try {
+				repeat_idx = std::stoul(index_str);
+			} catch (std::exception& e) {
+				throw std::invalid_argument(fmt::format("Could not resolve the given repeat index {} as an unsigned integer.",index_str));
+			}
+
+			if(repeat_idx >= num_executed_instances)
+				throw std::invalid_argument(fmt::format("Cannot combine repeat index {} as only have {} available repeat indexes common to strategies {}.",
+					repeat_idx, num_executed_instances, strategies_str));
+
+			repeat_indexes.push_back(repeat_idx);
+
+		}
+
+	}
+
+	spdlog::debug("Operating on {} provided repeat indexes {}.", repeat_indexes.size(), Fuse::Util::vector_to_string(repeat_indexes));
+
+	return repeat_indexes;
+}
+
+
+void run_main_options(const cxxopts::ParseResult& options_parse_result){
 
 	/* All of these options operate on a target Fuse folder, so load its json */
 
@@ -122,15 +208,32 @@ void run_main_options(cxxopts::ParseResult options_parse_result){
 
 	/* Now run the requested functions on the target */
 
+	bool minimal = options_parse_result["minimal"].as<bool>();
+
+	bool filter_to_events = options_parse_result["filter_events"].as<bool>();
+	if(filter_to_events){
+		fuse_target.set_filtered_events(fuse_target.get_target_events());
+	}
+
 	if(options_parse_result.count("execute_sequence")){
 		unsigned int number_of_executions = options_parse_result["execute_sequence"].as<unsigned int>();
-		bool minimal = options_parse_result["minimal"].as<bool>();
-		Fuse::execute_sequence(fuse_target, number_of_executions, minimal);
+		Fuse::execute_sequence_repeats(fuse_target, number_of_executions, minimal);
+	}
+
+	if(options_parse_result.count("execute_hem")){
+		unsigned int number_of_executions = options_parse_result["execute_hem"].as<unsigned int>();
+		Fuse::execute_hem_repeats(fuse_target, number_of_executions);
+	}
+
+	if(options_parse_result.count("combine_sequence")){
+		auto strategies = parse_strategies_option(options_parse_result, minimal);
+		auto repeat_indexes = parse_repeat_indexes_option(options_parse_result, fuse_target, minimal, strategies);
+		Fuse::combine_sequence_repeats(fuse_target, strategies, repeat_indexes, minimal);
 	}
 
 }
 
-void run_utility_options(cxxopts::ParseResult options_parse_result){
+void run_utility_options(const cxxopts::ParseResult& options_parse_result){
 
 	/* All of these options operate on a loaded tracefile, so let's do that first */
 
@@ -149,7 +252,6 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 		load_communication_matrix = true;
 
 	/* Now load */
-
 	Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, benchmark));
 	execution_profile->load_from_tracefile(load_communication_matrix);
 
@@ -172,8 +274,8 @@ void run_utility_options(cxxopts::ParseResult options_parse_result){
 
 }
 
-void run_options(const cxxopts::Options options,
-		const cxxopts::ParseResult options_parse_result,
+void run_options(const cxxopts::Options& options,
+		const cxxopts::ParseResult& options_parse_result,
 		const std::vector<std::string> main_options,
 		const std::vector<std::string> utility_options){
 

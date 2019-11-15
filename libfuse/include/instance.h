@@ -27,11 +27,14 @@ namespace Fuse {
 
 			int64_t get_event_value(Fuse::Event event, bool& error);
 
+			Fuse::Event_set get_events();
+
 			Instance();
 			~Instance();
 
 	};
 
+	bool comp_instances_by_label_dfs(Fuse::Instance_p a, Fuse::Instance_p b);
 }
 
 #endif

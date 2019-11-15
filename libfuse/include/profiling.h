@@ -44,6 +44,7 @@ namespace Fuse {
 		);
 
 		Fuse::Profile_p execute_and_load(
+			Fuse::Event_set filtered_events,
 			Fuse::Runtime runtime,
 			std::string binary,
 			std::string args,

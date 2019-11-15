@@ -49,3 +49,31 @@ int64_t Fuse::Instance::get_event_value(Fuse::Event event, bool& error){
 	return event_iter->second;
 
 }
+
+bool Fuse::comp_instances_by_label_dfs(Fuse::Instance_p a, Fuse::Instance_p b){
+
+	int a_depth = a->label.size();
+	int b_depth = b->label.size();
+
+	for(int i=0; i<a_depth && i<b_depth; i++){
+		if(a->label.at(i) < b->label.at(i))
+			return true;
+
+		if(b->label.at(i) < a->label.at(i))
+			return false;
+	}
+
+	return (a_depth < b_depth);
+}
+
+Fuse::Event_set Fuse::Instance::get_events(){
+
+	Fuse::Event_set events;
+	events.reserve(this->event_values.size());
+	for(auto event_iter : this->event_values){
+		events.push_back(event_iter.first);
+	}
+
+	return events;
+
+}

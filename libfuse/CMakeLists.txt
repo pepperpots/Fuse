@@ -25,6 +25,8 @@ add_library(fuse SHARED
 	src/util.cpp
 	src/fuse_types.cpp
 	src/profiling.cpp
+	src/combination.cpp
+	src/statistics.cpp
 )
 
 find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
@@ -42,6 +44,11 @@ add_subdirectory(external/json)
 unset(BUILD_TESTING)
 unset(JSON_MultipleHeaders)
 
+find_library(GMP_LIB gmp REQUIRED)
+if(NOT GMP_LIB)
+	message(FATAL_ERROR "Cannot find libgmp")
+endif()
+
 target_include_directories(fuse PRIVATE
 	external/spdlog/include
 	external/json/include
@@ -49,5 +56,5 @@ target_include_directories(fuse PRIVATE
 	include
 )
 
-target_link_libraries(fuse spdlog nlohmann_json ${AFTERMATH_LIB})
+target_link_libraries(fuse spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB})
 

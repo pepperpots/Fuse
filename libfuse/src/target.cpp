@@ -2,6 +2,7 @@
 #include "fuse.h"
 #include "config.h"
 #include "util.h"
+#include "statistics.h"
 
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
@@ -48,19 +49,21 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 	else
 		this->args = "";
 
-	if(j.count("combination_counts") && j["combination_counts"].is_null() == false){
-		auto strategy_objects = j["combination_counts"];
+	if(j.count("combined_indexes") && j["combined_indexes"].is_null() == false){
+
+		auto strategy_objects = j["combined_indexes"];
 		for(auto strat_iter = strategy_objects.begin(); strat_iter != strategy_objects.end(); strat_iter++){
 
-			for(auto count_iter = strat_iter->begin(); count_iter != strat_iter->end(); count_iter++){
+			for(auto indexes_iter = strat_iter->begin(); indexes_iter != strat_iter->end(); indexes_iter++){
 
-				std::string strategy_string = count_iter.key();
+				std::string strategy_string = indexes_iter.key();
 				Fuse::Strategy strategy = Fuse::convert_string_to_strategy(strategy_string);
+				std::vector<unsigned int> combined_indexes = indexes_iter.value();
 
-				this->combination_counts[strategy] = count_iter.value();
-				spdlog::trace("There are {} combined target profiles for strategy '{}'.", static_cast<int>(count_iter.value()), strategy_string);
+				this->combined_indexes[strategy] = combined_indexes;
+				spdlog::debug("There are {} combined target profiles for strategy '{}'.", combined_indexes.size(), strategy_string);
+
 			}
-
 		}
 	}
 
@@ -206,6 +209,8 @@ Fuse::Target::Target(std::string target_dir):
 		Fuse::initialize_logging(this->get_logs_directory(), true, Fuse::Config::fuse_log_level);
 	}
 
+	this->initialize_statistics();
+
 	spdlog::info("Loaded Fuse target from {}.", json_filename);
 
 }
@@ -240,20 +245,19 @@ void Fuse::Target::generate_json_optional(nlohmann::json& j){
 	if(this->args != "")
 		j["args"] = this->args;
 
-	if(this->combination_counts.size() > 0){
-		nlohmann::json counts_json;
+	if(this->combined_indexes.size() > 0){
+		nlohmann::json strat_json;
 
-		for(auto strat_iter : combination_counts){
-			nlohmann::json count_json;
+		for(auto strat_iter : this->combined_indexes){
+			nlohmann::json indexes_json;
 
 			std::string strategy_string = Fuse::convert_strategy_to_string(strat_iter.first);
-			count_json[strategy_string] = strat_iter.second;
+			indexes_json[strategy_string] = strat_iter.second;
 
-			counts_json.push_back(count_json);
+			strat_json.push_back(indexes_json);
 		}
 
-		j["combination_counts"] = counts_json;
-
+		j["combined_indexes"] = strat_json;
 	}
 
 	if(this->num_reference_repeats > 0)
@@ -331,6 +335,10 @@ void Fuse::Target::save(){
 	out << std::setw(2) << j;
 	out.close();
 
+	// Save statistics too, if they have been initialized
+	if(this->statistics != nullptr)
+		this->statistics->save();
+
 }
 
 void Fuse::Target::check_or_create_directories(){
@@ -360,6 +368,21 @@ std::string Fuse::Target::get_logs_directory(){
 
 std::string Fuse::Target::get_tracefiles_directory(){
 	return (this->target_directory + "/" + this->tracefiles_directory);
+}
+
+std::string Fuse::Target::get_combination_filename(
+		Fuse::Strategy strategy,
+		unsigned int repeat_idx
+		){
+
+	std::stringstream ss;
+	ss << this->target_directory << "/" << this->combinations_directory << "/";
+	ss << Fuse::convert_strategy_to_string(strategy);
+
+	Fuse::Util::check_or_create_directory(ss.str());
+
+	ss << "/combination_" << repeat_idx << ".txt";
+	return ss.str();
 }
 
 std::string Fuse::Target::get_target_binary(){
@@ -397,6 +420,208 @@ Fuse::Combination_sequence Fuse::Target::get_sequence(bool minimal){
 		return this->bc_sequence;
 }
 
+Fuse::Event_set Fuse::Target::get_target_events(){
+	return this->target_events;
+}
+
+Fuse::Event_set Fuse::Target::get_filtered_events(){
+	return this->filtered_events;
+}
+
+void Fuse::Target::set_filtered_events(Fuse::Event_set filter_to_events){
+	this->filtered_events = filter_to_events;
+}
+
+bool Fuse::Target::get_should_clear_cache(){
+	return this->should_clear_cache;
+}
+
+Fuse::Statistics_p Fuse::Target::get_statistics(){
+	if(this->statistics == nullptr)
+		throw std::runtime_error("Tried to get event statistics, but they have not yet been initialized.");
+	else
+		return this->statistics;
+}
+
+void Fuse::Target::store_loaded_sequence_profile(
+		unsigned int repeat_index,
+		Fuse::Sequence_part part,
+		Fuse::Profile_p execution_profile,
+		bool minimal
+		){
+
+	std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> >::iterator repeat_map_iter;
+
+	bool repeat_profiles_exist = false;
+
+	if(minimal){
+		repeat_map_iter = this->loaded_minimal_sequence_profiles.find(repeat_index);
+		if(repeat_map_iter != this->loaded_minimal_sequence_profiles.end())
+			repeat_profiles_exist = true;
+	} else {
+		repeat_map_iter = this->loaded_non_minimal_sequence_profiles.find(repeat_index);
+		if(repeat_map_iter != this->loaded_non_minimal_sequence_profiles.end())
+			repeat_profiles_exist = true;
+	}
+
+	if(repeat_profiles_exist){
+
+		auto part_iter = repeat_map_iter->second.find(part.part_idx);
+		if(part_iter == repeat_map_iter->second.end())
+			repeat_map_iter->second.insert(std::make_pair(part.part_idx, execution_profile));
+		else
+			throw std::logic_error("Attempted to add a loaded sequence profile, which already exists.");
+
+	} else {
+
+		std::map<unsigned int, Fuse::Profile_p> profiles_for_repeat_index;
+		profiles_for_repeat_index.insert(std::make_pair(part.part_idx, execution_profile));
+		if(minimal)
+			this->loaded_minimal_sequence_profiles.insert(std::make_pair(repeat_index, profiles_for_repeat_index));
+		else
+			this->loaded_non_minimal_sequence_profiles.insert(std::make_pair(repeat_index, profiles_for_repeat_index));
+
+	}
+
+}
+
+std::vector<Fuse::Profile_p> Fuse::Target::load_and_retrieve_sequence_profiles(
+		unsigned int repeat_idx,
+		bool minimal
+		){
+
+	auto minimal_str = minimal ? "minimal" : "non_minimal";
+
+	auto sequence = this->get_sequence(minimal);
+	if(sequence.size() < 1)
+		throw std::runtime_error(
+			fmt::format("No {} sequence has been defined in the target JSON, so cannot combine the sequence profiles.", minimal_str));
+
+	spdlog::info("Loading the {} sequence profiles for repeat index {}.", minimal_str);
+
+	// Do I have any loaded profiles for this repeat index?
+	bool repeat_profiles_exist = false;
+	std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> >::iterator repeat_map_iter;
+	if(minimal){
+		repeat_map_iter = this->loaded_minimal_sequence_profiles.find(repeat_idx);
+		if(repeat_map_iter != this->loaded_minimal_sequence_profiles.end())
+			repeat_profiles_exist = true;
+	} else {
+		repeat_map_iter = this->loaded_non_minimal_sequence_profiles.find(repeat_idx);
+		if(repeat_map_iter != this->loaded_non_minimal_sequence_profiles.end())
+			repeat_profiles_exist = true;
+	}
+
+	std::vector<Fuse::Profile_p> sequence_profiles;
+
+	for(auto part : sequence){
+
+		// Have I already got the sequence profile loaded?
+		if(repeat_profiles_exist){
+			auto part_iter = repeat_map_iter->second.find(part.part_idx);
+			if(part_iter != repeat_map_iter->second.end()){
+				sequence_profiles.push_back(part_iter->second);
+				continue;
+			}
+		}
+
+		// If here, it is not loaded, so load it
+		std::stringstream ss;
+		ss << this->get_tracefiles_directory() << "/" << minimal_str << "_";
+		ss << "sequence_profile_" << repeat_idx << "-" << part.part_idx << ".ost";
+		auto tracefile = ss.str();
+
+		Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, this->get_target_binary(), this->filtered_events));
+		execution_profile->load_from_tracefile(false);
+
+		sequence_profiles.push_back(execution_profile);
+
+		// Add it to this target
+		this->store_loaded_sequence_profile(repeat_idx, part, execution_profile, minimal);
+
+	}
+
+	return sequence_profiles;
+
+}
+
+void Fuse::Target::register_new_combined_profile(
+		Fuse::Strategy strategy,
+		unsigned int repeat_idx,
+		Fuse::Profile_p execution_profile
+		){
+
+	auto strategy_iter = this->combined_indexes.find(strategy);
+	if(strategy_iter == this->combined_indexes.end()){
+		std::vector<unsigned int> indexes = {repeat_idx};
+		this->combined_indexes.insert(std::make_pair(strategy, indexes));
+	}
+	else
+		strategy_iter->second.push_back(repeat_idx);
+
+	// Now dump the execution profile to file
+	std::string combined_instances_filename = this->get_combination_filename(strategy, repeat_idx);
+	execution_profile->print_to_file(combined_instances_filename);
+
+	this->modified = true;
+}
+
+unsigned int Fuse::Target::get_num_combined_profiles(Fuse::Strategy strategy){
+
+	auto strategy_iter = this->combined_indexes.find(strategy);
+	if(strategy_iter == this->combined_indexes.end())
+		return 0;
+	else
+		return strategy_iter->second.size();
+
+}
+
+void Fuse::Target::store_combined_profile(
+			unsigned int repeat_idx,
+			Fuse::Strategy strategy,
+			Fuse::Profile_p combined_profile
+		){
+
+	auto combined_iter = this->loaded_combined_profiles.find(strategy);
+	if(combined_iter == this->loaded_combined_profiles.end()){
+
+		std::map<unsigned int, Fuse::Profile_p> combined_profiles;
+		combined_profiles.insert(std::make_pair(repeat_idx, combined_profile));
+		this->loaded_combined_profiles.insert(std::make_pair(strategy, combined_profiles));
+
+	} else {
+
+		if(combined_iter->second.find(repeat_idx) != combined_iter->second.end())
+			spdlog::warn("When storing the combined profile for repeat index {} via strategy {}, a previously combined profile was found. The old combination will be overwritten.",
+				repeat_idx, Fuse::convert_strategy_to_string(strategy));
+
+		combined_iter->second[repeat_idx] = combined_profile;
+
+	}
+
+}
+
+bool Fuse::Target::combined_profile_exists(Fuse::Strategy strategy, unsigned int repeat_idx){
+
+	auto strategy_iter = this->combined_indexes.find(strategy);
+	if(strategy_iter == this->combined_indexes.end())
+		return false;
+
+	if(std::find(strategy_iter->second.begin(), strategy_iter->second.end(), repeat_idx) == strategy_iter->second.end())
+		return false;
+
+	return true;
+
+}
+
+void Fuse::Target::initialize_statistics(){
+
+	std::string saved_statistics_filename = this->target_directory + "/event_statistics.csv";
+	Fuse::Statistics_p stats(new Fuse::Statistics(saved_statistics_filename));
+	stats->load();
+	this->statistics = stats;
+
+}
 
 
 

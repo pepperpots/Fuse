@@ -10,6 +10,7 @@ namespace Fuse {
 	class Target;
 	class Instance;
 	class Execution_profile;
+	class Statistics;
 
 	enum Runtime {
 		OPENSTREAM,
@@ -18,9 +19,13 @@ namespace Fuse {
 
 	enum Strategy {
 		RANDOM,
+		RANDOM_MINIMAL,
 		RANDOM_TT,
+		RANDOM_TT_MINIMAL,
 		CTC,
+		CTC_MINIMAL,
 		LGL,
+		LGL_MINIMAL,
 		BC,
 		HEM
 	};
@@ -37,9 +42,11 @@ namespace Fuse {
 
 	typedef std::shared_ptr<Fuse::Execution_profile> Profile_p;
 	typedef std::shared_ptr<Fuse::Instance> Instance_p;
+	typedef std::shared_ptr<Fuse::Statistics> Statistics_p;
 
 	/* Functions */
 
+	Strategy convert_string_to_strategy(std::string strategy_string, bool minimal);
 	Strategy convert_string_to_strategy(std::string strategy_string);
 	std::string convert_strategy_to_string(Strategy strategy);
 

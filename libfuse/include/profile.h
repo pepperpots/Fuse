@@ -20,9 +20,8 @@ namespace Fuse {
 
 	class Execution_profile {
 
-		// class members
 		public:
-			std::map<Fuse::Symbol, std::vector<Fuse::Instance_p> > instances; // symbols mapped to instances of that symbol
+			std::map<Fuse::Symbol, std::vector<Fuse::Instance_p> > instances; // Symbols mapped to instances of that symbol
 			std::string tracefile;
 			std::string benchmark;
 
@@ -30,10 +29,9 @@ namespace Fuse {
 			Fuse::Event_set events;
 			Fuse::Event_set filtered_events; // If this is populated, then only these counter-events will be loaded
 
-			// if loaded, each instance maps to the pair [instances that it depends on, instances that depend on it]
+			// If loaded, each instance maps to the pair [instances that it depends on, instances that depend on it]
 			std::map<Fuse::Instance_p, std::pair<std::set<Fuse::Instance_p>,std::set<Fuse::Instance_p> > > instance_dependencies;
 
-		// class functions
 		public:
 
 			Execution_profile(
@@ -48,14 +46,16 @@ namespace Fuse {
 			void dump_instance_dependencies(std::string output_file);
 			void dump_instance_dependencies_dot(std::string output_file);
 
+			std::vector<Fuse::Symbol> get_unique_symbols();
 			Fuse::Event_set get_unique_events();
+
 			std::vector<Fuse::Instance_p> get_instances(
 				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>());
 
-		private:
-
 			void add_instance(Fuse::Instance_p instance);
 			void add_event(Fuse::Event event);
+
+		private:
 
 			void parse_instances_from_mes(struct multi_event_set* mes, bool load_communication_matrix);
 			void parse_openstream_instances(struct multi_event_set* mes, bool load_communication_matrix);

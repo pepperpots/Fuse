@@ -36,9 +36,19 @@ namespace Fuse {
 			Fuse::Combination_sequence minimal_sequence;
 			unsigned int num_bc_sequence_repeats;
 			unsigned int num_minimal_sequence_repeats;
-			std::map<Fuse::Strategy, unsigned int> combination_counts;
+
+			/* Map from repeat index to map of (part index) to (in-memory profile) */
+			std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> > loaded_minimal_sequence_profiles;
+			std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> > loaded_non_minimal_sequence_profiles;
+
+			std::map<Fuse::Strategy, std::vector<unsigned int> > combined_indexes;
+			std::map<Fuse::Strategy, std::map<unsigned int, Fuse::Profile_p> > loaded_combined_profiles;
 
 			bool should_clear_cache;
+
+			Fuse::Statistics_p statistics;
+			/* If non-empty, target profiles should only operate on these events at most */
+			Fuse::Event_set filtered_events;
 
 			bool modified;
 
@@ -49,11 +59,46 @@ namespace Fuse {
 			unsigned int get_num_sequence_repeats(bool minimal);
 			void increment_num_sequence_repeats(bool minimal);
 
+			void store_loaded_sequence_profile(
+				unsigned int repeat_index,
+				Fuse::Sequence_part part,
+				Fuse::Profile_p execution_profile,
+				bool minimal
+			);
+
+			/* These will be ordered by their part index */
+			std::vector<Fuse::Profile_p> load_and_retrieve_sequence_profiles(
+				unsigned int repeat_idx,
+				bool minimal
+			);
+
+			void store_combined_profile(
+				unsigned int repeat_idx,
+				Fuse::Strategy strategy,
+				Fuse::Profile_p combined_profile
+			);
+
+			void register_new_combined_profile(
+				Fuse::Strategy strategy,
+				unsigned int repeat_idx,
+				Fuse::Profile_p execution_profile
+			);
+
+			bool combined_profile_exists(Fuse::Strategy strategy, unsigned int repeat_idx);
+			unsigned int get_num_combined_profiles(Fuse::Strategy strategy);
+
+			Fuse::Statistics_p get_statistics();
+			std::vector<Fuse::Event_set> get_bc_overlapping_events();
+			Fuse::Event_set get_filtered_events();
+			void set_filtered_events(Fuse::Event_set filter_to_events);
+			bool get_should_clear_cache();
+			Event_set get_target_events();
 			Fuse::Runtime get_target_runtime();
 			std::string get_target_binary();
 			std::string get_target_args();
 			std::string get_logs_directory();
 			std::string get_tracefiles_directory();
+			std::string get_combination_filename(Fuse::Strategy strategy, unsigned int repeat_idx);
 			void save();
 
 		private:
@@ -62,6 +107,7 @@ namespace Fuse {
 			void generate_json_mandatory(nlohmann::json& j);
 			void generate_json_optional(nlohmann::json& j);
 			void check_or_create_directories();
+			void initialize_statistics();
 
 	};
 
