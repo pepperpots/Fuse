@@ -76,7 +76,9 @@ bool Fuse::Profiling::Openstream::execute(
 		bool multiplex
 		){
 
-	std::string events_str = Fuse::Util::vector_to_string(profiled_events); // Returns a list in the form [event,event,...]
+	Fuse::Event_set uppercase_events = Fuse::Util::vector_to_uppercase(profiled_events); // Because PAPI events are always uppercase
+
+	std::string events_str = Fuse::Util::vector_to_string(uppercase_events); // Returns a list in the form [event,event,...]
 	events_str = events_str.substr(1,events_str.size()-2); // Remove first and last brackets
 
 	std::stringstream ss;

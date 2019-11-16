@@ -127,7 +127,7 @@ std::shared_ptr<spdlog::logger> Fuse::initialize_logging(std::vector<spdlog::sin
 }
 
 void Fuse::execute_sequence_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		unsigned int number_of_repeats,
 		bool minimal,
 		bool keep_in_memory
@@ -191,7 +191,7 @@ void Fuse::execute_sequence_repeats(
 }
 
 void Fuse::execute_hem_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		unsigned int number_of_repeats,
 		bool keep_in_memory
 		){
@@ -240,7 +240,7 @@ void Fuse::execute_hem_repeats(
 }
 
 void Fuse::combine_sequence_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		std::vector<Fuse::Strategy> strategies,
 		std::vector<unsigned int> repeat_indexes,
 		bool minimal,
@@ -267,7 +267,7 @@ void Fuse::combine_sequence_repeats(
 
 			// Check if we have already combined this repeat index with this strategy
 			if(target.combined_profile_exists(strategy, repeat_idx)){
-				spdlog::info("The repeat index {} has already been combined via strategy {}. Continuing.", Fuse::convert_strategy_to_string(strategy));
+				spdlog::info("The repeat index {} has already been combined via strategy {}. Continuing.", repeat_idx, Fuse::convert_strategy_to_string(strategy));
 				continue;
 			}
 
@@ -295,9 +295,13 @@ void Fuse::combine_sequence_repeats(
 				target.store_combined_profile(repeat_idx, strategy, combined_profile);
 
 			spdlog::info("Finished combining the sequence profiles for repeat index {} via strategy {}.", repeat_idx, Fuse::convert_strategy_to_string(strategy));
+
 		}
 
+		target.save();
+
 	}
+
 
 }
 
@@ -308,6 +312,8 @@ void Fuse::add_profile_event_values_to_statistics(
 
 	auto instances = profile->get_instances();
 	auto events = profile->get_unique_events();
+
+	spdlog::debug("Adding event values to statistics for {} instances and {} events.", instances.size(), events.size());
 
 	// If error, then we are assuming there were no events of that type during the instance
 	bool error = false;

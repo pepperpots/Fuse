@@ -72,7 +72,7 @@ void Fuse::Statistics::load(){
 		} else {
 
 			auto event_iter = symbol_iter->second.find(event);
-			if(event_iter == symbol_iter->second.end())
+			if(event_iter != symbol_iter->second.end())
 				throw std::runtime_error(
 					fmt::format("Loading statistics for symbol {} and event {}: these statistics already exist.",
 					symbol, event));
@@ -90,6 +90,8 @@ void Fuse::Statistics::load(){
 }
 
 void Fuse::Statistics::save(){
+
+	this->calculate_statistics_from_running();
 
 	spdlog::debug("Saving statistics to {}.", this->statistics_filename);
 

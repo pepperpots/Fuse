@@ -23,20 +23,20 @@ namespace spdlog {
 namespace Fuse {
 
 	void execute_sequence_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		unsigned int number_of_executions,
 		bool minimal,
 		bool keep_in_memory = true
 	);
 
 	void execute_hem_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		unsigned int number_of_executions,
 		bool keep_in_memory = true
 	);
 
 	void combine_sequence_repeats(
-		Fuse::Target target,
+		Fuse::Target& target,
 		std::vector<Fuse::Strategy> strategies,
 		std::vector<unsigned int> repeat_indexes,
 		bool minimal,

@@ -134,14 +134,18 @@ std::vector<Fuse::Instance_p> Fuse::Combination::combine_instances_via_strategy(
 		case Fuse::Strategy::RANDOM_TT_MINIMAL:
 			// The instances have already been filtered per symbol if necessary
 			matched_instances = extract_matched_instances_random(instances_per_profile, false);
+			break;
 		case Fuse::Strategy::CTC:
 		case Fuse::Strategy::CTC_MINIMAL:
 			matched_instances = extract_matched_instances_chronological(instances_per_profile, false);
+			break;
 		case Fuse::Strategy::LGL:
 		case Fuse::Strategy::LGL_MINIMAL:
 			matched_instances = extract_matched_instances_by_label(instances_per_profile, false);
+			break;
 		case Fuse::Strategy::BC:
 			matched_instances = extract_matched_instances_bc(instances_per_profile, true, statistics, overlapping_events);
+			break;
 		case Fuse::Strategy::HEM:
 		default:
 			throw std::logic_error("Fuse combination logic failure.");
@@ -156,7 +160,7 @@ std::vector<Fuse::Instance_p> Fuse::Combination::combine_instances_via_strategy(
 	return combined_instances;
 }
 
-Fuse::Instance_p combine_instances(
+Fuse::Instance_p Fuse::Combination::combine_instances(
 		std::vector<Fuse::Instance_p> instances_to_combine
 		){
 
@@ -205,7 +209,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 
 	if(expect_matching)
 		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
-				== num_instances_per_profile.end())
+				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles randomly: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
 
@@ -247,7 +251,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 
 	if(expect_matching)
 		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
-				== num_instances_per_profile.end())
+				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles chronologically: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
 
@@ -285,7 +289,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 
 	if(expect_matching)
 		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
-				== num_instances_per_profile.end())
+				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles by matching label: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
 
@@ -308,7 +312,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 		}
 
 		if(expect_matching)
-			if(std::adjacent_find(matched_label_strs.begin(), matched_label_strs.end(), std::not_equal_to<>()) == matched_label_strs.end())
+			if(std::adjacent_find(matched_label_strs.begin(), matched_label_strs.end(), std::not_equal_to<>()) != matched_label_strs.end())
 				spdlog::warn("LGL strategy matched different labels across profiles: {}.", Fuse::Util::vector_to_string(matched_label_strs));
 
 		matched_instances.push_back(match);
@@ -354,6 +358,9 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_bc(
 
 		for(auto symbol : symbols){
 
+			spdlog::debug("Clustering instances of symbol [{}] ({}/{}).",
+				symbol, std::find(symbols.begin(), symbols.end(), symbol) - symbols.begin() + 1, symbols.size());
+
 			std::vector<std::vector<Fuse::Instance_p> > instances_per_profile;
 
 			// Add the instances from the previous combination
@@ -367,6 +374,9 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_bc(
 			if(instances_per_profile.at(0).size() != instances_per_profile.at(1).size())
 				spdlog::debug("There are unequal number of instances ({} and {}) from the two profiles under BC combination.",
 					instances_per_profile.at(0).size(), instances_per_profile.at(1).size());
+			else
+				spdlog::trace("Clustering {} instances from each profile via BC, for symbol {}.",
+					instances_per_profile.at(0).size(), symbol);
 
 			auto combined_instances = Fuse::Combination::combine_instances_via_strategy(
 				instances_per_profile,
@@ -465,6 +475,11 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 			overlapping_events,
 			event_bounds,
 			g);
+
+		spdlog::trace("At granularity {}, there are {} clusters in a and {} clusters in b.",
+			g,
+			clustered_instances_a.size(),
+			clustered_instances_b.size());
 
 		std::vector<Fuse::Instance_p> remove_from_a, remove_from_b;
 
@@ -814,28 +829,32 @@ double find_minimum_pairwise_distance_brute_force(
 		auto cluster_one = cluster_pair.first;
 
 		auto one_iter = clustered_instances_a.find(cluster_one);
-		for(auto instance : one_iter->second){
-			if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
-				all_instances_in_one.push_back(instance);
-		}
+		if(one_iter != clustered_instances_a.end())
+			for(auto instance : one_iter->second){
+				if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
+					all_instances_in_one.push_back(instance);
+			}
 		one_iter = clustered_instances_b.find(cluster_one);
-		for(auto instance : one_iter->second){
-			if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
-				all_instances_in_one.push_back(instance);
-		}
+		if(one_iter != clustered_instances_b.end())
+			for(auto instance : one_iter->second){
+				if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
+					all_instances_in_one.push_back(instance);
+			}
 
 		auto cluster_two = cluster_pair.second;
 
 		auto two_iter = clustered_instances_a.find(cluster_two);
-		for(auto instance : two_iter->second){
-			if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
-				all_instances_in_two.push_back(instance);
-		}
+		if(two_iter != clustered_instances_a.end())
+			for(auto instance : two_iter->second){
+				if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
+					all_instances_in_two.push_back(instance);
+			}
 		two_iter = clustered_instances_b.find(cluster_two);
-		for(auto instance : two_iter->second){
-			if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
-				all_instances_in_two.push_back(instance);
-		}
+		if(two_iter != clustered_instances_b.end())
+			for(auto instance : two_iter->second){
+				if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
+					all_instances_in_two.push_back(instance);
+			}
 
 		for(auto instance_one : all_instances_in_one){
 			for(auto instance_two : all_instances_in_two){

@@ -99,7 +99,9 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 			struct Fuse::Sequence_part part;
 
 			Event_set overlapping = sequence_part["overlapping"];
+			overlapping = Fuse::Util::vector_to_lowercase(overlapping);
 			Event_set unique = sequence_part["unique"];
+			unique = Fuse::Util::vector_to_lowercase(unique);
 
 			/* Check that overlapping events are not-unique */
 			Event_set intersection_check;
@@ -146,6 +148,7 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 				throw std::invalid_argument("Minimal sequence in target JSON does not contain a valid set of unique events.");
 
 			Event_set unique = sequence_part["unique"];
+			unique = Fuse::Util::vector_to_lowercase(unique);
 
 			/* Check that unique events are unique */
 			Event_set intersection_check;
@@ -497,7 +500,7 @@ std::vector<Fuse::Profile_p> Fuse::Target::load_and_retrieve_sequence_profiles(
 		throw std::runtime_error(
 			fmt::format("No {} sequence has been defined in the target JSON, so cannot combine the sequence profiles.", minimal_str));
 
-	spdlog::info("Loading the {} sequence profiles for repeat index {}.", minimal_str);
+	spdlog::info("Loading the {} sequence profiles for repeat index {}.", minimal_str, repeat_idx);
 
 	// Do I have any loaded profiles for this repeat index?
 	bool repeat_profiles_exist = false;

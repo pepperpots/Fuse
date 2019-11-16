@@ -26,6 +26,9 @@ namespace Fuse {
 		std::string get_directory_from_filename(const std::string& filename);
 		std::vector<std::string> split_string_to_vector(const std::string& s, char delim);
 		std::string lowercase(const std::string str);
+		std::vector<std::string> vector_to_lowercase(const std::vector<std::string> word_list);
+		std::string uppercase(const std::string str);
+		std::vector<std::string> vector_to_uppercase(const std::vector<std::string> word_list);
 
 	}
 }

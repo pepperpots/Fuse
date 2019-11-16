@@ -99,9 +99,33 @@ std::vector<std::string> Fuse::Util::split_string_to_vector(const std::string& s
 }
 
 std::string Fuse::Util::lowercase(const std::string str){
-
 	std::string lower = str;
 	std::transform(lower.begin(), lower.end(), lower.begin(), tolower);
 	return lower;
+}
 
+std::vector<std::string> Fuse::Util::vector_to_lowercase(const std::vector<std::string> word_list){
+	std::vector<std::string> lowered;
+	lowered.reserve(word_list.size());
+
+	for(auto word : word_list)
+		lowered.push_back(Fuse::Util::lowercase(word));
+
+	return lowered;
+}
+
+std::string Fuse::Util::uppercase(const std::string str){
+	std::string upper = str;
+	std::transform(upper.begin(), upper.end(), upper.begin(), toupper);
+	return upper;
+}
+
+std::vector<std::string> Fuse::Util::vector_to_uppercase(const std::vector<std::string> word_list){
+	std::vector<std::string> uppered;
+	uppered.reserve(word_list.size());
+
+	for(auto word : word_list)
+		uppered.push_back(Fuse::Util::uppercase(word));
+
+	return uppered;
 }

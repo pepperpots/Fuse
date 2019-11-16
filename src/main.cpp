@@ -22,7 +22,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 		("d,target_dir", "Target Fuse target directory (containing fuse.json).", cxxopts::value<std::string>())
 		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal', 'filter_events'.", cxxopts::value<unsigned int>())
 		("m,combine_sequence", "Combine the sequence repeats. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'filter_events'.")
-		("h,execute_hem", "Execute the HEM execution profile. Argument is number of repeat executions. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
+		("t,execute_hem", "Execute the HEM execution profile. Argument is number of repeat executions. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
 		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'accuracy_metric', 'filter_events'.")
 		("r,execute_references", "Execute the reference execution profiles. Conditioned by 'filter_events'.")
 		("c,run_calibration", "Run EPD calibration on the reference profiles. Conditioned by 'filter_events'.");
@@ -148,7 +148,7 @@ std::vector<unsigned int> parse_repeat_indexes_option(
 	std::string strategies_str = "";
 	for(auto strategy : strategies)
 		strategies_str += Fuse::convert_strategy_to_string(strategy) + ",";
-	strategies_str = strategies_str.substr(0,strategies_str.size()-2);
+	strategies_str = "[" + strategies_str.substr(0,strategies_str.size()-1) + "]";
 
 	if(std::find(strategies.begin(), strategies.end(), Fuse::Strategy::HEM) != strategies.end()){
 		auto num_hem_instances = fuse_target.get_num_combined_profiles(Fuse::Strategy::HEM);
