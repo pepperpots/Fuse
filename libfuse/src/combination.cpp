@@ -144,7 +144,7 @@ std::vector<Fuse::Instance_p> Fuse::Combination::combine_instances_via_strategy(
 			matched_instances = extract_matched_instances_bc(instances_per_profile, true, statistics, overlapping_events);
 		case Fuse::Strategy::HEM:
 		default:
-			throw std::logic_error("Combination logic failure.");
+			throw std::logic_error("Fuse combination logic failure.");
 	}
 
 	std::vector<Fuse::Instance_p> combined_instances;
@@ -162,15 +162,28 @@ Fuse::Instance_p combine_instances(
 
 	// Create a new instance
 	Fuse::Instance_p combined_instance(new Fuse::Instance());
-	/*
-	runtime_instance->label = label;
-	runtime_instance->cpu = cpu_idx;
-	runtime_instance->symbol = "runtime";
-	runtime_instance->start = 0;
-	runtime_instance->is_gpu_eligible = 0;
-	*/
+	combined_instance->label = instances_to_combine.at(0)->label;
+	combined_instance->cpu = instances_to_combine.at(0)->cpu;
+	combined_instance->symbol = instances_to_combine.at(0)->symbol;
+	combined_instance->start = instances_to_combine.at(0)->start;
+	combined_instance->is_gpu_eligible = instances_to_combine.at(0)->is_gpu_eligible;
 
 	// Add all the event value data
+	// We add the first value found for each event
+	Fuse::Event_set added_events;
+	for(auto instance : instances_to_combine){
+		auto events = instance->get_events();
+		for(auto event : events){
+
+			if(std::find(added_events.begin(), added_events.end(), event) == added_events.end()){
+				bool error = false;
+				auto value = instance->get_event_value(event, error); // guarantee no error
+				combined_instance->append_event_value(event, value, false);
+				added_events.push_back(event);
+			}
+
+		}
+	}
 
 	return combined_instance;
 }
@@ -514,7 +527,16 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 		spdlog::debug("After clustering with granularity {}, there are {} and {} instances remaining across the profiles.",
 			g, instances_a.size(), instances_b.size());
 
-		g = Fuse::Combination::relax_similarity_constraint(g, instances_a, instances_b, overlapping_events, event_bounds);
+		// TODO have clustered_instances_a have already been modified?
+
+		g = Fuse::Combination::relax_similarity_constraint(g,
+			clustered_instances_a,
+			clustered_instances_b,
+			remove_from_a,
+			remove_from_b,
+			overlapping_events,
+			event_bounds
+		);
 
 	}
 
@@ -593,19 +615,6 @@ unsigned int Fuse::Combination::bc_find_maximum_granularity(
 
 }
 
-unsigned int Fuse::Combination::relax_similarity_constraint(
-		unsigned int current_granularity,
-		std::vector<Fuse::Instance_p> instances_a,
-		std::vector<Fuse::Instance_p> instances_b,
-		Fuse::Event_set overlapping_events,
-		std::vector<std::pair<int64_t,int64_t> > bounds
-		){
-
-	// TODO
-	return current_granularity - 1;
-
-}
-
 std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > Fuse::Combination::bc_allocate_to_clusters(
 		std::vector<Fuse::Instance_p> instances,
 		Fuse::Event_set overlapping_events,
@@ -616,6 +625,13 @@ std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > Fuse::Combin
 	// A cluster is represented by a vector of cluster indexes
 	// Each cluster maps to the instances that populate it
 	std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances;
+
+	if(granularity == 1){
+		// Simply add all instances to one cluster
+		std::vector<unsigned int> cluster = {0};
+		clustered_instances.insert(std::make_pair(cluster, instances));
+		return clustered_instances;
+	}
 
 	// Alloate each instance to its cluster
 	for(auto instance : instances){
@@ -660,3 +676,241 @@ std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > Fuse::Combin
 	return clustered_instances;
 
 }
+
+std::vector<std::pair<std::vector<unsigned int>,std::vector<unsigned int> > > get_closest_clusters(
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_a,
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_b,
+		std::vector<Fuse::Instance_p> already_combined_a,
+		std::vector<Fuse::Instance_p> already_combined_b
+		){
+
+	// There may be multiple clusters at the same euclidean distance
+	std::vector<std::pair<std::vector<unsigned int>,std::vector<unsigned int> > > closest_cluster_coordinates;
+
+	std::vector<std::vector<unsigned int> > all_cluster_coords;
+	for(auto cluster : clustered_instances_a)
+		all_cluster_coords.push_back(cluster.first);
+	for(auto cluster : clustered_instances_b)
+		all_cluster_coords.push_back(cluster.first);
+
+	double minimum_squared_distance = std::numeric_limits<double>::max();
+
+	for(decltype(all_cluster_coords.size()) i = 0; i < all_cluster_coords.size(); i++){
+		for(decltype(all_cluster_coords.size()) j = i+1; j < all_cluster_coords.size(); j++){
+			// Find the euclidean distance between these clusters
+
+			double squared_euclidean_distance = 0.0;
+			for(decltype(all_cluster_coords.size()) k = 0; k < all_cluster_coords.at(i).size(); k++)
+				squared_euclidean_distance += std::pow(std::fabs(all_cluster_coords.at(i).at(k)-all_cluster_coords.at(j).at(k)),2);
+
+			bool should_add = false;
+			if(squared_euclidean_distance <= minimum_squared_distance){
+
+				auto cluster_a_iter = clustered_instances_a.find(all_cluster_coords.at(i));
+				auto cluster_b_iter = clustered_instances_b.find(all_cluster_coords.at(j));
+
+				if(cluster_a_iter != clustered_instances_a.end() && cluster_b_iter != clustered_instances_b.end()){
+
+					std::vector<Fuse::Instance_p> non_merged_a, non_merged_b;
+
+					// There are some in both! Check they haven't been merged?
+					std::set_difference(
+						cluster_a_iter->second.begin(), cluster_a_iter->second.end(),
+						already_combined_a.begin(), already_combined_a.end(),
+						std::back_inserter(non_merged_a));
+
+					std::set_difference(
+						cluster_b_iter->second.begin(), cluster_b_iter->second.end(),
+						already_combined_b.begin(), already_combined_b.end(),
+						std::back_inserter(non_merged_b));
+
+					if(non_merged_a.size() > 0 && non_merged_b.size() > 0){
+						should_add = true;
+					}
+
+				}
+
+				if(should_add == false){
+					// Check the other way around
+
+					cluster_a_iter = clustered_instances_a.find(all_cluster_coords.at(j));
+					cluster_b_iter = clustered_instances_b.find(all_cluster_coords.at(i));
+
+					if(cluster_a_iter != clustered_instances_a.end() && cluster_b_iter != clustered_instances_b.end()){
+
+						std::vector<Fuse::Instance_p> non_merged_a, non_merged_b;
+
+						// There are some in both! Check they haven't been merged?
+						std::set_difference(
+							cluster_a_iter->second.begin(), cluster_a_iter->second.end(),
+							already_combined_a.begin(), already_combined_a.end(),
+							std::back_inserter(non_merged_a));
+
+						std::set_difference(
+							cluster_b_iter->second.begin(), cluster_b_iter->second.end(),
+							already_combined_b.begin(), already_combined_b.end(),
+							std::back_inserter(non_merged_b));
+
+						if(non_merged_a.size() > 0 && non_merged_b.size() > 0){
+							should_add = true;
+						}
+
+					}
+				}
+			}
+
+			if(should_add == false)
+				continue;
+
+			if(squared_euclidean_distance < minimum_squared_distance){
+				minimum_squared_distance = squared_euclidean_distance;
+				closest_cluster_coordinates.clear();
+			}
+
+			auto pair = std::make_pair(all_cluster_coords.at(i),all_cluster_coords.at(j));
+			closest_cluster_coordinates.push_back(pair);
+
+		}
+
+	}
+
+	return closest_cluster_coordinates;
+}
+
+
+/* TODO Currently very inefficient!
+* At the moment, I find the pair of instances that are closest in euclidean distance
+* - I first find the closest pair of bins, by bin-distance, that have combinable instances
+*	- Then enumerate the instances of these bins
+* Then I find the largest single-dimension distance between these instances, and that's the span for the next bins
+*/
+
+double find_minimum_pairwise_distance_brute_force(
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_a,
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_b,
+		std::vector<Fuse::Instance_p> already_combined_a,
+		std::vector<Fuse::Instance_p> already_combined_b,
+		Fuse::Event_set overlapping_events,
+		std::vector<std::pair<int64_t,int64_t> > event_bounds,
+		unsigned int granularity
+		){
+
+	// Find the closest clusters that have combinable instances
+	auto closest_cluster_coordinates = get_closest_clusters(
+		clustered_instances_a,
+		clustered_instances_b,
+		already_combined_a,
+		already_combined_b
+	);
+
+	double minimum_euclidean_squared_distance = std::numeric_limits<double>::max();
+	double closest_instances_largest_distance_in_single_event = 0;
+
+	for(auto cluster_pair : closest_cluster_coordinates){
+
+		std::vector<Fuse::Instance_p> all_instances_in_one, all_instances_in_two;
+
+		// Collect all the non-combined instances into a single list for each cluster pair
+		auto cluster_one = cluster_pair.first;
+
+		auto one_iter = clustered_instances_a.find(cluster_one);
+		for(auto instance : one_iter->second){
+			if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
+				all_instances_in_one.push_back(instance);
+		}
+		one_iter = clustered_instances_b.find(cluster_one);
+		for(auto instance : one_iter->second){
+			if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
+				all_instances_in_one.push_back(instance);
+		}
+
+		auto cluster_two = cluster_pair.second;
+
+		auto two_iter = clustered_instances_a.find(cluster_two);
+		for(auto instance : two_iter->second){
+			if(std::find(already_combined_a.begin(), already_combined_a.end(), instance) == already_combined_a.end())
+				all_instances_in_two.push_back(instance);
+		}
+		two_iter = clustered_instances_b.find(cluster_two);
+		for(auto instance : two_iter->second){
+			if(std::find(already_combined_b.begin(), already_combined_b.end(), instance) == already_combined_b.end())
+				all_instances_in_two.push_back(instance);
+		}
+
+		for(auto instance_one : all_instances_in_one){
+			for(auto instance_two : all_instances_in_two){
+
+				// The distance has to be bin distance!
+				bool error = false;
+				double squared_bin_euclidean_distance = 0.0;
+				double local_largest_distance_in_single_event = 0.0;
+				for(decltype(overlapping_events.size()) k = 0; k < overlapping_events.size(); k++){
+
+					int64_t count_from_one = instance_one->get_event_value(overlapping_events.at(k),error);
+					int64_t count_from_two = instance_two->get_event_value(overlapping_events.at(k),error);
+
+					uint64_t difference = std::abs(((double) count_from_one) - ((double) count_from_two));
+
+					int64_t range = event_bounds.at(k).second - event_bounds.at(k).first;
+
+					double bin_distance = ((double) difference) / (((double)(range)) / granularity);
+
+					if(bin_distance > local_largest_distance_in_single_event){
+						local_largest_distance_in_single_event = bin_distance;
+					}
+
+					squared_bin_euclidean_distance += std::pow(bin_distance,2);
+				}
+
+				if(squared_bin_euclidean_distance == minimum_euclidean_squared_distance){
+					if(local_largest_distance_in_single_event < closest_instances_largest_distance_in_single_event){
+						closest_instances_largest_distance_in_single_event = local_largest_distance_in_single_event;
+					}
+				} else if(squared_bin_euclidean_distance < minimum_euclidean_squared_distance){
+					minimum_euclidean_squared_distance = squared_bin_euclidean_distance;
+					closest_instances_largest_distance_in_single_event = local_largest_distance_in_single_event;
+				}
+
+			}
+		}
+
+	}
+
+	return closest_instances_largest_distance_in_single_event;
+}
+
+unsigned int Fuse::Combination::relax_similarity_constraint(
+		unsigned int current_granularity,
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_a,
+		std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_b,
+		std::vector<Fuse::Instance_p> already_combined_a,
+		std::vector<Fuse::Instance_p> already_combined_b,
+		Fuse::Event_set overlapping_events,
+		std::vector<std::pair<int64_t,int64_t> > event_bounds
+		){
+
+	double minimum_bin_distance = find_minimum_pairwise_distance_brute_force(
+		clustered_instances_a,
+		clustered_instances_b,
+		already_combined_a,
+		already_combined_b,
+		overlapping_events,
+		event_bounds,
+		current_granularity
+	);
+
+	unsigned int next_granularity = std::ceil(((double) ((double) 1.0/(1.0+minimum_bin_distance))) * current_granularity);
+
+	if(next_granularity == current_granularity)
+		next_granularity--;
+
+	// Just in case
+	if(next_granularity < 1 || minimum_bin_distance == 0.0)
+		next_granularity = 1;
+
+	spdlog::trace("Minimum bin distance is {} after granularity {}, relaxing granularity to {}.", minimum_bin_distance, current_granularity, next_granularity);
+
+	return next_granularity;
+
+}
+

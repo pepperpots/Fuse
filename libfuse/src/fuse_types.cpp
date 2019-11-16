@@ -11,17 +11,19 @@ Fuse::Strategy Fuse::convert_string_to_strategy(std::string strategy_string, boo
 	if(strategy_string == "ctc") return minimal ? Fuse::Strategy::CTC_MINIMAL : Fuse::Strategy::CTC;
 	if(strategy_string == "lgl") return minimal ? Fuse::Strategy::LGL_MINIMAL : Fuse::Strategy::LGL;
 
-	if(strategy_string == "hem")
+	if(strategy_string == "hem"){
 		if(minimal)
 			std::runtime_error("Combination strategy HEM cannot be performed with minimal profiles.");
 		else
 			return Fuse::Strategy::HEM;
+	}
 
-	if(strategy_string == "bc")
+	if(strategy_string == "bc"){
 		if(minimal)
 			std::runtime_error("Combination strategy BC cannot be performed with minimal profiles.");
 		else
 			return Fuse::Strategy::BC;
+	}
 
 	throw std::invalid_argument(
 		fmt::format("Could not resolve provided strategy '{}' with minimal={} to a supported combination strategy.",

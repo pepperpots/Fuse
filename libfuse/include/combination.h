@@ -64,10 +64,12 @@ namespace Fuse {
 
 		unsigned int relax_similarity_constraint(
 			unsigned int current_granularity,
-			std::vector<Fuse::Instance_p> instances_a,
-			std::vector<Fuse::Instance_p> instances_b,
+			std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_a,
+			std::map<std::vector<unsigned int>, std::vector<Fuse::Instance_p> > clustered_instances_b,
+			std::vector<Fuse::Instance_p> already_combined_a,
+			std::vector<Fuse::Instance_p> already_combined_b,
 			Fuse::Event_set overlapping_events,
-			std::vector<std::pair<int64_t,int64_t> > bounds
+			std::vector<std::pair<int64_t,int64_t> > event_bounds
 		);
 
 		std::vector<std::vector<Fuse::Instance_p> > extract_matched_instances_random(
