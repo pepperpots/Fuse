@@ -34,6 +34,7 @@ namespace Fuse {
 			std::string statistics_filename;
 			std::map<Fuse::Symbol, std::map<Fuse::Event,Fuse::Running_stats> > running_stats_by_symbol;
 			std::map<Fuse::Symbol, std::map<Fuse::Event,Fuse::Stats> > stats_by_symbol;
+			bool modified;
 
 		public:
 			Statistics(std::string statistics_filename);

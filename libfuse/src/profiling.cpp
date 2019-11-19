@@ -5,8 +5,10 @@
 
 #include "spdlog/spdlog.h"
 
+#include <chrono>
 #include <sstream>
 #include <string>
+#include <thread>
 
 Fuse::Profile_p Fuse::Profiling::execute_and_load(
 		Fuse::Event_set filtered_events,
@@ -50,6 +52,8 @@ void Fuse::Profiling::execute(
 				success = Fuse::Profiling::Openstream::execute(binary, args, tracefile, profiled_events, multiplex);
 				if(success)
 					break;
+
+				std::this_thread::sleep_for(std::chrono::seconds(1));
 			}
 
 			break;
@@ -129,4 +133,52 @@ void Fuse::Profiling::clear_system_cache(){
 	system("sync && sudo /sbin/sysctl vm.drop_caches=3");
 
 }
+
+bool Fuse::Profiling::compatibility_check(Fuse::Event_set events, std::string papi_directory){
+
+	std::stringstream ss;
+	ss << papi_directory << "/papi_event_chooser PRESET ";
+	for(auto event : events)
+		ss << Fuse::Util::uppercase(event) << " ";
+
+	std::string cmd = ss.str();
+
+	for(decltype(Fuse::Config::max_execution_attempts) attempt_idx = 0; attempt_idx < Fuse::Config::max_execution_attempts; attempt_idx++){
+
+		spdlog::trace("Executing compatibility check using: '{}'.", cmd);
+
+		char buffer[256];
+		std::string result = "";
+
+		auto pipe = popen(cmd.c_str(), "r");
+		if(pipe == nullptr){
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+			continue;
+		}
+
+		while(!feof(pipe)){
+			if(fgets(buffer, 256, pipe) != nullptr)
+				result += buffer;
+		}
+
+		auto ret = pclose(pipe);
+
+		if(ret == EXIT_SUCCESS)
+			return true;
+		else
+			return false;
+
+	}
+
+	throw std::runtime_error(fmt::format("Unable to execute command '{}' to determine PAPI events compatibility.", cmd));
+
+}
+
+
+
+
+
+
+
+
 

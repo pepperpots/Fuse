@@ -45,7 +45,8 @@ int64_t Fuse::Instance::get_event_value(Fuse::Event event, bool& error){
 		return 0;
 	}
 
-	error = false;
+	// Don't change the error to false, so we can detect if at least a single error exists across multiple calls
+	// error = false;
 	return event_iter->second;
 
 }

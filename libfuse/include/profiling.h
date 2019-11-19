@@ -56,6 +56,8 @@ namespace Fuse {
 
 		void clear_system_cache();
 
+		bool compatibility_check(Fuse::Event_set events, std::string papi_directory);
+
 	};
 
 }; // Fuse namespace

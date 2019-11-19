@@ -37,7 +37,8 @@ namespace Fuse {
 			Execution_profile(
 				std::string tracefile,
 				std::string benchmark_binary,
-				Fuse::Event_set filtered_events = Fuse::Event_set());
+				Fuse::Event_set filtered_events = Fuse::Event_set()
+			);
 
 			~Execution_profile();
 
@@ -50,7 +51,13 @@ namespace Fuse {
 			Fuse::Event_set get_unique_events();
 
 			std::vector<Fuse::Instance_p> get_instances(
-				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>());
+				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
+			);
+
+			std::vector<std::vector<int64_t> > get_value_distribution(
+				Fuse::Event_set events,
+				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
+			);
 
 			void add_instance(Fuse::Instance_p instance);
 			void add_event(Fuse::Event event);
@@ -67,12 +74,13 @@ namespace Fuse {
 					uint64_t,
 					std::set<std::pair<unsigned int, Fuse::Instance_p>, Compare>
 					>& data_accesses
-				);
+			);
 
 			void gather_sorted_openstream_parsing_events(
 				struct multi_event_set* mes,
 				std::vector<struct single_event*>& all_single_events,
-				std::vector<struct comm_event*>& all_comm_events);
+				std::vector<struct comm_event*>& all_comm_events
+			);
 
 			void allocate_cycles_in_state(
 				struct multi_event_set* mes,
@@ -82,7 +90,7 @@ namespace Fuse {
 				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 				std::vector<uint64_t>& partially_traced_state_time_by_cpu,
 				std::vector<uint64_t>& runtime_starts_by_cpu
-				);
+			);
 
 			template <typename Compare>
 			void update_data_accesses(
@@ -96,7 +104,8 @@ namespace Fuse {
 				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 				unsigned int& next_comm_event_idx,
 				unsigned int total_num_comm_events,
-				bool load_communication_matrix);
+				bool load_communication_matrix
+			);
 
 			void process_next_openstream_single_event(
 				struct single_event* se,
@@ -106,32 +115,37 @@ namespace Fuse {
 				std::vector<Fuse::Instance_p>& runtime_instances_by_cpu,
 				std::vector<uint64_t>& runtime_starts_by_cpu,
 				std::vector<int>& ces_hints_per_cpu,
-				unsigned int& top_level_instance_counter);
+				unsigned int& top_level_instance_counter
+			);
 
 			void process_openstream_instance_creation(
 				struct single_event* se,
 				struct frame* top_level_frame,
 				std::map<uint64_t, std::queue<Fuse::Instance_p> >& ready_instances_by_frame,
 				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
-				unsigned int& top_level_instance_counter);
+				unsigned int& top_level_instance_counter
+			);
 
 			void process_openstream_instance_start(
 				struct single_event* se,
 				std::map<uint64_t, std::queue<Fuse::Instance_p> >& ready_instances_by_frame,
-				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu);
+				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu
+			);
 
 			void process_openstream_instance_end(
 				struct single_event* se,
 				std::map<int, std::pair<Fuse::Instance_p, std::vector<int> > >& executing_instances_by_cpu,
 				std::vector<uint64_t>& runtime_starts_by_cpu,
-				std::vector<int>& ces_hints_per_cpu);
+				std::vector<int>& ces_hints_per_cpu
+			);
 
 			void interpolate_and_append_counter_values(
 				Fuse::Instance_p instance,
 				uint64_t start_time,
 				uint64_t end_time,
 				struct event_set* es,
-				int& start_index_hint);
+				int& start_index_hint
+			);
 
 	};
 

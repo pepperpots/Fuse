@@ -126,6 +126,71 @@ std::shared_ptr<spdlog::logger> Fuse::initialize_logging(std::vector<spdlog::sin
 
 }
 
+void Fuse::execute_references(
+		Fuse::Target& target,
+		unsigned int number_of_repeats
+		){
+
+	auto saved_filtered_events = target.get_filtered_events();
+
+	auto reference_sets = target.get_or_generate_reference_sets();
+
+	spdlog::info("Executing {} repeats of the {} reference profiles.", number_of_repeats, reference_sets.size());
+
+	unsigned int current_idx = target.get_num_reference_repeats();
+	for(unsigned int instance_idx = current_idx; instance_idx < (current_idx+number_of_repeats); instance_idx++){
+
+		spdlog::debug("Executing reference profiles for repeat index {}.", instance_idx);
+		std::vector<std::string> reference_tracefiles_for_repeat;
+		reference_tracefiles_for_repeat.reserve(reference_sets.size());
+
+		for(decltype(reference_sets.size()) ref_idx = 0; ref_idx < reference_sets.size(); ref_idx++){
+
+			std::stringstream ss;
+			ss << target.get_tracefiles_directory() << "/reference_profile_";
+			ss << instance_idx << "-" << ref_idx << ".ost";
+			auto tracefile = ss.str();
+
+			reference_tracefiles_for_repeat.push_back(tracefile);
+
+			Fuse::Event_set reference_set = reference_sets.at(ref_idx);
+
+			target.set_filtered_events(reference_set);
+
+			Fuse::Profile_p execution_profile = Fuse::Profiling::execute_and_load(
+				target.get_filtered_events(),
+				target.get_target_runtime(),
+				target.get_target_binary(),
+				target.get_target_args(),
+				tracefile,
+				reference_set,
+				target.get_should_clear_cache()
+			);
+
+			Fuse::add_profile_event_values_to_statistics(execution_profile, target.get_statistics());
+
+			auto reference_values = execution_profile->get_value_distribution(reference_set);
+
+			target.save_reference_values(ref_idx, instance_idx, reference_set, reference_values);
+
+		}
+
+		target.compress_references_tracefiles(reference_tracefiles_for_repeat, instance_idx);
+		target.increment_num_reference_repeats();
+
+	}
+
+	target.save();
+
+	target.set_filtered_events(saved_filtered_events);
+
+	spdlog::info("Finished executing {} repeats of the {} reference profiles. Target now has {} reference repeats.",
+		number_of_repeats,
+		reference_sets.size(),
+		target.get_num_reference_repeats());
+
+}
+
 void Fuse::execute_sequence_repeats(
 		Fuse::Target& target,
 		unsigned int number_of_repeats,
@@ -302,6 +367,7 @@ void Fuse::combine_sequence_repeats(
 
 	}
 
+	spdlog::info("Completed all requested combinations.");
 
 }
 

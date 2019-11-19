@@ -215,6 +215,11 @@ void run_main_options(const cxxopts::ParseResult& options_parse_result){
 		fuse_target.set_filtered_events(fuse_target.get_target_events());
 	}
 
+	if(options_parse_result.count("execute_references")){
+		unsigned int number_of_executions = options_parse_result["execute_references"].as<unsigned int>();
+		Fuse::execute_references(fuse_target, number_of_executions);
+	}
+
 	if(options_parse_result.count("execute_sequence")){
 		unsigned int number_of_executions = options_parse_result["execute_sequence"].as<unsigned int>();
 		Fuse::execute_sequence_repeats(fuse_target, number_of_executions, minimal);

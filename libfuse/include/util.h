@@ -20,6 +20,35 @@ namespace Fuse {
 			return "[" + ss.str()+ "]";
 		}
 
+		template<class Type>
+    inline std::vector<std::vector<Type> > get_unique_combinations(std::vector<Type> list, int k){
+
+			std::vector<std::vector<Type> > combinations;
+			auto n = list.size();
+
+			/*
+			* make a selector array, with combination_size values as true and the rest false
+			* then get each permutation of this selector array using std::prev_permutation
+			* for each permutation of the selector array (where the true elements will be the selected list),
+			* select and combine these elements
+			*/
+			std::vector<bool> selectors(n);
+			std::fill(selectors.begin(), selectors.end() - n + k, true);
+
+			do {
+				std::vector<Type> current_combination;
+				for(int i = 0; i < n; ++i){
+					if(selectors[i]){
+						current_combination.push_back(list.at(i));
+					}
+				}
+				combinations.push_back(current_combination);
+
+			} while(std::prev_permutation(selectors.begin(), selectors.end()));
+
+			return combinations;
+    }
+
 		bool check_file_existance(std::string filename);
 		void check_or_create_directory(std::string directory);
 		std::string check_or_create_directory_from_filename(std::string filename);

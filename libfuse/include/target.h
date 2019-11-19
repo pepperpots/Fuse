@@ -12,8 +12,6 @@ namespace Fuse {
 
 	class Target {
 
-		public:
-
 		private:
 			std::string target_directory;
 
@@ -30,6 +28,7 @@ namespace Fuse {
 
 			std::vector<Event_set> reference_sets;
 			unsigned int num_reference_repeats;
+			std::map<unsigned int, std::vector<std::vector<int64_t> > > loaded_references;
 
 			Event_set target_events;
 			Fuse::Combination_sequence bc_sequence;
@@ -87,6 +86,27 @@ namespace Fuse {
 			bool combined_profile_exists(Fuse::Strategy strategy, unsigned int repeat_idx);
 			unsigned int get_num_combined_profiles(Fuse::Strategy strategy);
 
+			unsigned int get_num_reference_repeats();
+			void increment_num_reference_repeats();
+			std::vector<Fuse::Event_set> get_or_generate_reference_sets();
+
+			std::string get_reference_filename_for(
+				unsigned int reference_idx,
+				unsigned int repeat_idx
+			);
+
+			void save_reference_values(
+				unsigned int reference_idx,
+				unsigned int repeat_idx,
+				Fuse::Event_set reference_set,
+				std::vector<std::vector<int64_t> > values
+			);
+
+			void compress_references_tracefiles(
+				std::vector<std::string> reference_tracefiles,
+				unsigned int repeat_idx
+			);
+
 			Fuse::Statistics_p get_statistics();
 			std::vector<Fuse::Event_set> get_bc_overlapping_events();
 			Fuse::Event_set get_filtered_events();
@@ -98,6 +118,7 @@ namespace Fuse {
 			std::string get_target_args();
 			std::string get_logs_directory();
 			std::string get_tracefiles_directory();
+			std::string get_references_directory();
 			std::string get_combination_filename(Fuse::Strategy strategy, unsigned int repeat_idx);
 			void save();
 

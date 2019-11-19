@@ -22,6 +22,11 @@ namespace spdlog {
 
 namespace Fuse {
 
+	void execute_references(
+		Fuse::Target& target,
+		unsigned int number_of_executions
+	);
+
 	void execute_sequence_repeats(
 		Fuse::Target& target,
 		unsigned int number_of_executions,

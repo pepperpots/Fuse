@@ -1,8 +1,9 @@
 #include "target.h"
-#include "fuse.h"
 #include "config.h"
-#include "util.h"
+#include "fuse.h"
+#include "profiling.h"
 #include "statistics.h"
+#include "util.h"
 
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
@@ -338,7 +339,7 @@ void Fuse::Target::save(){
 	out << std::setw(2) << j;
 	out.close();
 
-	// Save statistics too, if they have been initialized
+	// Save statistics too, if necessary
 	if(this->statistics != nullptr)
 		this->statistics->save();
 
@@ -373,6 +374,10 @@ std::string Fuse::Target::get_tracefiles_directory(){
 	return (this->target_directory + "/" + this->tracefiles_directory);
 }
 
+std::string Fuse::Target::get_references_directory(){
+	return (this->target_directory + "/" + this->references_directory);
+}
+
 std::string Fuse::Target::get_combination_filename(
 		Fuse::Strategy strategy,
 		unsigned int repeat_idx
@@ -405,6 +410,10 @@ unsigned int Fuse::Target::get_num_sequence_repeats(bool minimal){
 		return this->num_minimal_sequence_repeats;
 	else
 		return this->num_bc_sequence_repeats;
+}
+
+unsigned int Fuse::Target::get_num_reference_repeats(){
+	return this->num_reference_repeats;
 }
 
 void Fuse::Target::increment_num_sequence_repeats(bool minimal){
@@ -623,6 +632,133 @@ void Fuse::Target::initialize_statistics(){
 	Fuse::Statistics_p stats(new Fuse::Statistics(saved_statistics_filename));
 	stats->load();
 	this->statistics = stats;
+
+}
+
+std::vector<Fuse::Event_set> Fuse::Target::get_or_generate_reference_sets(){
+
+	if(this->reference_sets.size() > 0)
+		return this->reference_sets;
+
+	// First, generate all the desired pairs: each event is mapped to a list of events it needs paired with
+	std::vector<Fuse::Event_set> remaining_pairs;
+	Fuse::Event_set events = this->target_events;
+	std::reverse(events.begin(),events.end());
+
+	while(events.size() > 1){
+		Fuse::Event event = events.back();
+		events.pop_back();
+		remaining_pairs.push_back(events);
+	}
+
+	// Then, greedily generate compatible event sets that contain these pairs
+	Fuse::Event_set current_set;
+	unsigned int next_event_idx = 0;
+	while(next_event_idx < remaining_pairs.size()){
+
+		// Get the next event, and find out which other events it still needs to be paired with
+		Fuse::Event event = this->target_events.at(next_event_idx);
+		if(remaining_pairs.at(next_event_idx).size() == 0){
+			next_event_idx++;
+			continue;
+		}
+
+		current_set.push_back(event);
+		if(Fuse::Profiling::compatibility_check(current_set, this->papi_directory) == false){
+			current_set.pop_back(); // Remove the incompatible event
+			this->reference_sets.push_back(current_set); // Save the event set
+			current_set = {event}; // Start a fresh set with the event that we are currently fulfilling
+		}
+
+		// Keep adding until the current set is incompatible or we move to a new next_event_idx
+		while(remaining_pairs.at(next_event_idx).size() > 0){
+
+			current_set.push_back(remaining_pairs.at(next_event_idx).back());
+			if(Fuse::Profiling::compatibility_check(current_set, this->papi_directory) == false){
+				current_set.pop_back();
+				this->reference_sets.push_back(current_set);
+				current_set = {event};
+			} else {
+				remaining_pairs.at(next_event_idx).pop_back();
+			}
+
+		}
+
+		// We no longer have any remaining for this event, so move onto the next
+		next_event_idx++;
+	}
+
+	// We might have finished on a so-far compatible set, so save it
+	if(current_set.size() > 1)
+		this->reference_sets.push_back(current_set);
+
+	this->modified = true;
+	this->save();
+
+	return this->reference_sets;
+}
+
+std::string Fuse::Target::get_reference_filename_for(
+		unsigned int reference_idx,
+		unsigned int repeat_idx
+		){
+
+	auto references_dir = this->get_references_directory();
+	std::stringstream ss;
+	ss << references_dir << "/distribution_" << reference_idx << "_" << repeat_idx << ".bin";
+
+	return ss.str();
+}
+
+void Fuse::Target::save_reference_values(
+		unsigned int reference_idx,
+		unsigned int repeat_idx,
+		Fuse::Event_set reference_set,
+		std::vector<std::vector<int64_t> > values
+		){
+
+	// I want to write the reference values as a compact binary format, to save space
+	// TODO I should provide a utility function to dump a reference's values as csv, for debugging
+
+	auto ref_filename = this->get_reference_filename_for(reference_idx, repeat_idx);
+	spdlog::debug("Writing reference distribution for events {} to file {}.",
+		Fuse::Util::vector_to_string(reference_set),
+		ref_filename
+	);
+
+	auto file_stream = std::fstream(ref_filename, std::ios::out | std::ios::binary);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to write reference distribution data.", ref_filename));
+
+	auto num_events = reference_set.size();
+	file_stream.write(reinterpret_cast<char*>(&num_events), sizeof(num_events));
+
+	for(auto event : reference_set){
+		auto num_chars = event.size();
+		file_stream.write(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
+		file_stream.write(event.c_str(),num_chars);
+	}
+
+	for(auto instance_values : values)
+		file_stream.write(reinterpret_cast<char*>(&instance_values[0]), instance_values.size()*sizeof(instance_values[0]));
+
+	file_stream.close();
+
+}
+
+void Fuse::Target::increment_num_reference_repeats(){
+
+	this->num_reference_repeats++;
+	this->modified = true;
+
+}
+
+void Fuse::Target::compress_references_tracefiles(
+		std::vector<std::string> reference_tracefiles,
+		unsigned int repeat_idx
+		){
+
+	// TODO
 
 }
 

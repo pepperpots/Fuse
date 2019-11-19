@@ -504,7 +504,6 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 			// So save the ones that we have matched from each profile
 			remove_from_a.reserve(remove_from_a.size() + within_cluster_matched_instances.size());
 			remove_from_b.reserve(remove_from_b.size() + within_cluster_matched_instances.size());
-
 			for(auto match : within_cluster_matched_instances){
 				remove_from_a.push_back(match.at(0));
 				remove_from_b.push_back(match.at(1));
@@ -541,8 +540,6 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 
 		spdlog::debug("After clustering with granularity {}, there are {} and {} instances remaining across the profiles.",
 			g, instances_a.size(), instances_b.size());
-
-		// TODO have clustered_instances_a have already been modified?
 
 		g = Fuse::Combination::relax_similarity_constraint(g,
 			clustered_instances_a,
@@ -859,7 +856,6 @@ double find_minimum_pairwise_distance_brute_force(
 		for(auto instance_one : all_instances_in_one){
 			for(auto instance_two : all_instances_in_two){
 
-				// The distance has to be bin distance!
 				bool error = false;
 				double squared_bin_euclidean_distance = 0.0;
 				double local_largest_distance_in_single_event = 0.0;

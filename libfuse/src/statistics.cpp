@@ -10,9 +10,9 @@
 #include <map>
 #include <string>
 
-Fuse::Statistics::Statistics(std::string statistics_filename){
-
-	this->statistics_filename = statistics_filename;
+Fuse::Statistics::Statistics(std::string statistics_filename):
+		statistics_filename(statistics_filename),
+		modified(false){
 
 }
 
@@ -91,6 +91,9 @@ void Fuse::Statistics::load(){
 
 void Fuse::Statistics::save(){
 
+	if(this->modified == false)
+		return;
+
 	this->calculate_statistics_from_running();
 
 	spdlog::debug("Saving statistics to {}.", this->statistics_filename);
@@ -137,6 +140,8 @@ void Fuse::Statistics::add_event_value(
 		int64_t value,
 		Fuse::Symbol symbol
 		){
+
+	this->modified = true;
 
 	// First, add it as a value for the event across all symbols
 	// Then add it as a value for its particular symbol
