@@ -1,8 +1,9 @@
 ## FuseHPM
 
 This repository contains the Fuse HPM tool presented in:
-    1. [Neill, R., Drebes, A., and Pop, A. Fuse: Accurate multiplexing of hardware performance counters across executions. ACM Trans. Archit. Code Optim. 14, 4 (Dec. 2017), 43:1–43:26](https://dl.acm.org/citation.cfm?id=3148054)
-    2. [Neill, R., Drebes, A., and Pop, A. Accurate and complete hardware profiling for openmp. In Scaling OpenMP for Exascale Performance and Portability (Cham 2017), B. R. de Supinski, S. L. Olivier, C. Terboven, B. M. Chapman, and M. S. Müller, Eds., Springer International Publishing, pp. 266–280](https://link.springer.com/chapter/10.1007/978-3-319-65578-9_18)
+
+1. [Neill, R., Drebes, A., and Pop, A. Fuse: Accurate multiplexing of hardware performance counters across executions. ACM Trans. Archit. Code Optim. 14, 4 (Dec. 2017), 43:1–43:26](https://dl.acm.org/citation.cfm?id=3148054)
+2. [Neill, R., Drebes, A., and Pop, A. Accurate and complete hardware profiling for openmp. In Scaling OpenMP for Exascale Performance and Portability (Cham 2017), B. R. de Supinski, S. L. Olivier, C. Terboven, B. M. Chapman, and M. S. Müller, Eds., Springer International Publishing, pp. 266–280](https://link.springer.com/chapter/10.1007/978-3-319-65578-9_18)
 
 The repository's main functionality:
 * Execute profiling runs of [OpenStream](http://openstream.cs.manchester.ac.uk/) or [OpenMP](https://www.openmp.org/) programs
@@ -10,11 +11,10 @@ The repository's main functionality:
 * Analyse the accuracy of the hardware performance monitoring data in a combined profile, via Execution Profile Dissimilarity
 
 The tool is provided as two components:
-    1. A shared library libFuseHPM in the `libFuseHPM/` directory
-    This contains the core Fuse functionality, with the necessary API included via the `fuse.h` header file
-
-    2. A runner tool that provides a wrapper for the library, to enable immediate application of Fuse HPM to a target benchmark
-    This is provided in the `src/` directory
+- A shared library libFuseHPM in the `libFuseHPM/` directory
+    - This contains the core Fuse functionality, with the necessary API included via the `fuse.h` header file
+- A runner tool that provides a wrapper for the library, to enable immediate application of Fuse HPM to a target benchmark
+    - This is provided in the `src/` directory
 
 ### Dependencies
 
