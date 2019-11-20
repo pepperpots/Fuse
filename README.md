@@ -1,32 +1,38 @@
-# Fuse
+## FuseHPM
 
-This repository contains experimental work relevant to:
-
-Richard Neill, Andi Drebes, and Antoniu Pop. 2017. Fuse: Accurate Multiplexing of Hardware Performance Counters Across Executions. ACM Trans. Archit. Code Optim. 14, 4, Article 43 (December 2017), 26 pages. DOI: https://doi.org/10.1145/3148054
+This repository contains the Fuse HPM tool presented in:
+    1. [Neill, R., Drebes, A., and Pop, A. Fuse: Accurate multiplexing of hardware performance counters across executions. ACM Trans. Archit. Code Optim. 14, 4 (Dec. 2017), 43:1–43:26](https://dl.acm.org/citation.cfm?id=3148054)
+    2. [Neill, R., Drebes, A., and Pop, A. Accurate and complete hardware profiling for openmp. In Scaling OpenMP for Exascale Performance and Portability (Cham 2017), B. R. de Supinski, S. L. Olivier, C. Terboven, B. M. Chapman, and M. S. Müller, Eds., Springer International Publishing, pp. 266–280](https://link.springer.com/chapter/10.1007/978-3-319-65578-9_18)
 
 The repository's main functionality:
+* Execute profiling runs of [OpenStream](http://openstream.cs.manchester.ac.uk/) or [OpenMP](https://www.openmp.org/) programs
+* Combine the different profiling runs according to a selected combination strategy, to produce a complete profile
+* Analyse the accuracy of the hardware performance monitoring data in a combined profile, via Execution Profile Dissimilarity
 
-* Execute profiling runs of OpenStream or OpenMP programs
-* Merge the different profiling runs according to a selected combination strategy, to give a complete profile
-* Analyse the accuracy of the hardware performance monitoring data in a merged profile, via Execution Profile Dissimilarity
+The tool is provided as two components:
+    1. A shared library libFuseHPM in the `libFuseHPM/` directory
+    This contains the core Fuse functionality, with the necessary API included via the `fuse.h` header file
 
-The repository contains a subset of an experimental codebase, so some code may be unused and/or incomplete.
+    2. A runner tool that provides a wrapper for the library, to enable immediate application of Fuse HPM to a target benchmark
+    This is provided in the `src/` directory
 
 ### Dependencies
 
-The following external projects are required to run Fuse:
+The following external projects are required to build Fuse:
+* [Aftermath, Aftermath-OpenMP](https://www.aftermath-tracing.com/)
+* [Boost Interval Container Library](https://www.boost.org/doc/libs/1_64_0/libs/icl/doc/html/index.html)
 
-* Aftermath, Aftermath-OpenMP (https://www.aftermath-tracing.com/)
-* OpenStream (http://openstream.cs.manchester.ac.uk/)
-* Boost Interval Container Library (https://www.boost.org/doc/libs/1_64_0/libs/icl/doc/html/index.html)
-* MIToolbox - *optionally* built by passing -DMUTUAL_INFORMATION=1 to CMake (http://www.cs.man.ac.uk/~pococka4/MIToolbox.html) - required for experimental merge specification generation
+The following external projects are optional:
+* [MIToolbox](http://www.cs.man.ac.uk/~pococka4/MIToolbox.html) is required for BC combination sequence generation
+    This is built by passing -DMUTUAL_INFORMATION=1 to cmake
 
-The following projects are included in the repository as dependencies:
-
-* JSON for Modern C++ (https://github.com/nlohmann/json)
-* Lightweight C++ command line option parser (https://github.com/jarro2783/cxxopts)
+The following projects are included as dependencies to the libFuseHPM library:
+* [Nlohmann's JSON for Modern C++](https://github.com/nlohmann/json)
 * Fast EMD (Ofir Pele, Michael Werman. A Linear Time Histogram Metric for Improved SIFT Matching, ECCV 2008)
-* Easylogging++ (https://github.com/zuhd-org/easyloggingpp)
+* [The spdlog Fast C++ logging library](https://github.com/gabime/spdlog)
+
+The following projects are further included as dependencies for the runner tool:
+* [Lightweight C++ command line option parser](https://github.com/jarro2783/cxxopts)
 
 ### Build
 
@@ -34,58 +40,115 @@ The project can be built via CMake, for example:
 
     mkdir build
     cd build
-    cmake -DAFTERMATH_INCLUDE_DIR=... -DAFTERMATH_LIB_DIR=... ../
+    cmake -DCMAKE_BUILD_TYPE=RELEASE -DAFTERMATH_INCLUDE_DIR=... -DAFTERMATH_LIB_DIR=... ../
     make
 
-### Running Fuse
+### Using the tool
 
 Fuse is executed with command line options. These options can be viewed via:
 
-    ./fuse --help
+    ./fuse_runner --help
 
-To run fuse, a fuse specification file named 'fuse.spec' is required. This should be formatted as JSON, with a minimal example as follows:
+This produces the following options:
+
+     Main options:
+      -d, --target_dir arg        Target Fuse target directory (containing
+                                  fuse.json).
+      -e, --execute_sequence arg  Execute the sequence. Argument is number of
+                                  repeat sequence executions. Conditioned by
+                                  'minimal', 'filter_events'.
+      -m, --combine_sequence      Combine the sequence repeats. Conditioned by
+                                  'strategies', 'repeat_indexes', 'minimal',
+                                  'filter_events'.
+      -t, --execute_hem arg       Execute the HEM execution profile. Argument is
+                                  number of repeat executions. Conditioned by
+                                  'filter_events'.
+      -a, --analyse_accuracy      Analyse accuracy of combined execution
+                                  profiles. Conditioned by 'strategies', 'repeat_indexes',
+                                  'minimal', 'accuracy_metric', 'filter_events'.
+      -r, --execute_references    Execute the reference execution profiles.
+                                  Conditioned by 'filter_events'.
+      -c, --run_calibration       Run EPD calibration on the reference profiles.
+                                  Conditioned by 'filter_events'.
+    
+     Miscellaneous options:
+      -h, --help           Print this help.
+          --log_level arg  Set minimum logging level. Argument is integer
+                           position in {trace, debug, info, warn}. Defaults to info.
+                           (default: 2)
+    
+     Parameter options:
+          --strategies arg      Comma-separated list of strategies from
+                                {'random','ctc','lgl','bc','hem'}.
+          --repeat_indexes arg  Comma-separated list of sequence repeat indexes
+                                to operate on, or 'all'. Defaults t all repeat
+                                indexes. (default: all)
+          --minimal             Use minimal execution profiles (default is
+                                non-minimal). Strategies 'bc' and 'hem' cannot use
+                                minimal.
+          --filter_events       Main options only load and dump data for the
+                                events defined in the target JSON (i.e. exclude non
+                                HPM events). Default is false.
+          --tracefile arg       Argument is the tracefile to load for utility
+                                options.
+          --benchmark arg       Argument is the benchmark to use when loading
+                                tracefile for utility options.
+    
+     Utility options:
+          --dump_instances arg      Dumps an execution profile matrix. Argument
+                                    is the output file. Requires 'tracefile',
+                                    'benchmark'.
+          --dump_dag_adjacency arg  Dumps the data-dependency DAG as a dense
+                                    adjacency matrix. Argument is the output file.
+                                    Requires 'tracefile', 'benchmark'.
+          --dump_dag_dot arg        Dumps the task-creation and data-dependency
+                                    DAG as a .dot for visualization. Argument is
+                                    the output file. Requires 'tracefile',
+                                    'benchmark'.
+
+The main options require a target Fuse folder, which defines the runtime, binary, and target hardware events.
+This folder is provided via the 'target_dir' command line option, which must contain a JSON file: `fuse.json`, with mandatory fields as follows:
 
     {
-			"benchmark": "...",
-			"args": "...",
-			"benchmark_loc": "directory in which executable benchmark exists",
-			"cache_cleared": true,
-			"runtime": "openstream",
-			"reference_distributions_loc": "directory to store the reference event count distributions",
-			"tracefiles_loc": "directory to store .ost trace files",
-			"papi_executables_dir": "directory containing papi_avail, papi_event_chooser binaries",
-			"merged_profile_loc": "directory to store results of the merges"
-		}
+        "binary": "binary_filename",
+        "binary_directory": "binary_dir/",
+        "runtime": "openstream",
+        "target_events": [
+            "PAPI_event_1",
+            "PAPI_event_2",
+            ...
+        ],  
+        "references_directory": "references",
+        "tracefiles_directory": "tracefiles",
+        "combinations_directory": "combinations",
+        "papi_directory": "papi_dir/bin/"
+    }
 
-For combination strategies that require common events, there is no current implemented algorithm to autogenerate the merge process. Therefore for this the JSON file must include something of the form:
+Optional fields are:
 
-		{
-			"merge_spec":[
-				{
-					"merge_index":0,
-					"profiled_events":["event1","event2",...], # must be simultaneously compatible
-					"linking_events":[], # empty for first merge index
-				},
-				{
-					"merge_index":1,
-					"profiled_events":["event1","event3",...], # must be simultaneously compatible
-					"linking_events":["event1",...], # events must exist in superset of previous merges
-				},
-				...
-			]
-		}
+    {
+        "args": "args_for_binary_execution",
+        "should_clear_cache": true,
+        "bc_sequence": [...],
+        "minimal_sequence": [...]
+    }
+
+The sequences are specified as an ordered JSON list of hardware event sets, given as JSON objects of the form:
+
+    {
+        "overlapping": [
+            PAPI_event_1,
+            PAPI_event_2,
+            ...
+        ],
+        "unique" : [
+            PAPI_event_3,
+            PAPI_event_4,
+            ...
+        ]
+    }
 
 ### Licence
 
-This project is licensed with GPLv2. Please cite the paper if you use this code in your work (https://dl.acm.org/citation.cfm?doid=3154814.3148054)
-
-### TODO
-
-There are many TODOs throughout the project, such as:
-
-* Unit testing
-* Sanity checking on configuration
-* Consolidate configuration in .spec and configuration in common.h,
-* Typedef the code to be more readable
-* Auto typing to reduce boilerplate
+This project is licensed with GPLv2. Please cite the TACO article if you use this code in your work (https://dl.acm.org/citation.cfm?doid=3154814.3148054)
 

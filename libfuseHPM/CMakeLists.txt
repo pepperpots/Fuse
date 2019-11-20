@@ -1,22 +1,18 @@
 cmake_minimum_required(VERSION 3.5.1)
 include(CheckIncludeFiles)
-project(fuse)
+project(fuseHPM)
 include(GNUInstallDirs)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-if (CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
-	message(FATAL_ERROR "Require at least g++-9.0")
-endif()
-
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "-fpermissive -DCOMPILE_C -fopenmp")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 
-add_library(fuse SHARED
+add_library(fuseHPM SHARED
 	src/config.cpp
 	src/fuse.cpp
 	src/target.cpp
@@ -49,12 +45,12 @@ if(NOT GMP_LIB)
 	message(FATAL_ERROR "Cannot find libgmp")
 endif()
 
-target_include_directories(fuse PRIVATE
+target_include_directories(fuseHPM PRIVATE
 	external/spdlog/include
 	external/json/include
 	${AFTERMATH_INCLUDE_DIR}
 	include
 )
 
-target_link_libraries(fuse spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB})
+target_link_libraries(fuseHPM spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB})
 

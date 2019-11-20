@@ -15,11 +15,11 @@ file(GLOB SOURCES "src/*.cpp")
 add_executable(fuse_runner ${SOURCES})
 
 target_include_directories(fuse_runner PRIVATE
-	libfuse/include
+	libfuseHPM/include
 	src/
 	external/cxxopts/include
 	libfuse/external/spdlog/include
 )
 
-target_link_libraries(fuse_runner PRIVATE fuse spdlog)
+target_link_libraries(fuse_runner PRIVATE fuseHPM spdlog)
 

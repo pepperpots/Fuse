@@ -2,8 +2,8 @@
 	path = external/cxxopts
 	url = https://github.com/jarro2783/cxxopts.git
 [submodule "libfuse/external/spdlog"]
-	path = libfuse/external/spdlog
+	path = libfuseHPM/external/spdlog
 	url = https://github.com/gabime/spdlog.git
 [submodule "libfuse/external/json"]
-	path = libfuse/external/json
+	path = libfuseHPM/external/json
 	url = https://github.com/nlohmann/json.git

@@ -26,8 +26,6 @@ void Fuse::Target::parse_json_mandatory(nlohmann::json& j){
 				fmt::format("Runtime '{}' is not supported. Requires 'openstream' or 'openmp'.",
 					static_cast<std::string>(j["runtime"])));
 
-	this->should_clear_cache = j["should_clear_cache"];
-
 	for(auto event : j["target_events"])
 		this->target_events.push_back(event);
 
@@ -49,6 +47,11 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 		this->args = j["args"];
 	else
 		this->args = "";
+
+	if(j.count("should_clear_cache"))
+		this->should_clear_cache = j["should_clear_cache"];
+	else
+		this->should_clear_cache = false;
 
 	if(j.count("combined_indexes") && j["combined_indexes"].is_null() == false){
 
@@ -233,8 +236,6 @@ void Fuse::Target::generate_json_mandatory(nlohmann::json& j){
 				fmt::format("Could not resolve a runtime (integer enum value is {}) to a string representation.",
 					static_cast<int>(this->runtime)));
 
-	j["should_clear_cache"] = this->should_clear_cache;
-
 	j["references_directory"] = this->references_directory;
 	j["tracefiles_directory"] = this->tracefiles_directory;
 	j["combinations_directory"] = this->combinations_directory;
@@ -245,6 +246,8 @@ void Fuse::Target::generate_json_mandatory(nlohmann::json& j){
 }
 
 void Fuse::Target::generate_json_optional(nlohmann::json& j){
+
+	j["should_clear_cache"] = this->should_clear_cache;
 
 	if(this->args != "")
 		j["args"] = this->args;
