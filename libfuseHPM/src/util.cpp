@@ -81,6 +81,15 @@ std::string Fuse::Util::get_directory_from_filename(const std::string& filename)
 
 }
 
+std::string Fuse::Util::get_filename_from_full_path(const std::string& fully_qualified){
+
+	auto found_index = fully_qualified.find_last_of("/\\");
+	auto filename = fully_qualified.substr(found_index,fully_qualified.size());
+
+	return filename;
+
+}
+
 std::vector<std::string> split(const std::string& s, char delim, std::vector<std::string>& elems){
 
 	std::stringstream ss(s);

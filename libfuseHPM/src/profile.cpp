@@ -136,7 +136,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 			std::stringstream ss;
 
-			ss << instance->cpu << "," << instance->symbol << "," << Fuse::Util::vector_to_string(instance->label, "-");
+			ss << instance->cpu << "," << instance->symbol << "," << Fuse::Util::vector_to_string(instance->label, true, "-");
 
 			if(filtered == false)
 				ss << "," << instance->is_gpu_eligible;
@@ -198,7 +198,7 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 	filestring += "\n";
 
 	for(auto instance : all_instances){
-		filestring += Fuse::Util::vector_to_string(instance->label,"-");
+		filestring += Fuse::Util::vector_to_string(instance->label,true,"-");
 		filestring += "\n";
 	}
 
@@ -286,7 +286,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 		if(instance->symbol == "runtime")
 			continue;
 
-		auto label_string = Fuse::Util::vector_to_string(instance->label,"-");
+		auto label_string = Fuse::Util::vector_to_string(instance->label,true,"-");
 
 		node_label_to_node_index.insert(std::make_pair(label_string,instance_idx));
 
@@ -307,12 +307,12 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 		// Find the instance with my parent's label
 		// Then draw an edge between my parent instance and me
 
-		auto my_label_string = Fuse::Util::vector_to_string(instance->label,"-");
+		auto my_label_string = Fuse::Util::vector_to_string(instance->label,true,"-");
 
 		auto parent_label = instance->label; // copy constructor
 		parent_label.pop_back(); // remove my child rank
 
-		auto parent_label_string = Fuse::Util::vector_to_string(parent_label,"-");
+		auto parent_label_string = Fuse::Util::vector_to_string(parent_label,true,"-");
 
 		auto parent_node_iter = node_label_to_node_index.find(parent_label_string);
 		if (parent_node_iter == node_label_to_node_index.end())

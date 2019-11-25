@@ -761,7 +761,56 @@ void Fuse::Target::compress_references_tracefiles(
 		unsigned int repeat_idx
 		){
 
-	// TODO
+	// Check pbzip2 exists
+	std::string check_cmd = "which pbzip2";
+	auto pipe = popen(check_cmd.c_str(), "r");
+	if(pipe == nullptr){
+		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as cannot open pipe for '{}'.",
+			repeat_idx, check_cmd);
+		return;
+	} else if(pclose(pipe) != EXIT_SUCCESS){
+		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as pbzip2 cannot be found.",
+			repeat_idx);
+		return;
+	}
+
+	std::stringstream ss;
+	ss << this->get_tracefiles_directory() << "/references_" << repeat_idx << ".tar.bz2";
+	auto compressed_filename = ss.str();
+
+	std::string tracefiles_str;
+	for(auto reference_name : reference_tracefiles)
+		tracefiles_str += " " + Fuse::Util::get_filename_from_full_path(reference_name);
+
+	// to compress:
+	// tar -cf tracefiles/comp.tar.bz2 --use-compress-prog=pbzip2 --remove-files -C tracefiles/ a.txt b.txt
+	// to decompress:
+	// tar -C tracefiles/ -xf tracefiles/comp.tar.bz2 --remove-files
+
+	std::string compress_cmd = "tar -cf " + compressed_filename + " --use-compress-prog=pbzip2 --remove-files";
+	compress_cmd += " -C " + this->get_tracefiles_directory() + "/ ";
+	compress_cmd += tracefiles_str;
+
+	char buffer[256];
+	std::string result = "";
+
+	auto pipe = popen(compress_cmd.c_str(), "r");
+	if(pipe == nullptr){
+		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as cannot open pipe for '{}'.",
+			repeat_idx, compress_cmd);
+		return;
+	}
+
+	while(!feof(pipe)){
+		if(fgets(buffer, 256, pipe) != nullptr)
+			result += buffer;
+	}
+
+	auto ret = pclose(pipe);
+
+	if(ret != EXIT_SUCCESS)
+		spdlog::warn("Failed to compress reference tracefiles for repeat index {}, command '{}' returned '{}'.",
+			repeat_idx, compress_cmd, result);
 
 }
 

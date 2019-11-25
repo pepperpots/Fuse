@@ -10,14 +10,17 @@ namespace Fuse {
 	namespace Util {
 
 		template <typename T>
-		inline std::string vector_to_string(std::vector<T> vector, std::string delim=","){
+		inline std::string vector_to_string(std::vector<T> vector, bool enclose = true, std::string delim = ","){
 			std::stringstream ss;
 			for(typename std::vector<T>::iterator it = vector.begin(); it != vector.end(); it++){
 				ss << *it;
 				if(std::distance(it,vector.end())>1)
 					ss << delim;
 			}
-			return "[" + ss.str()+ "]";
+			if(enclose)
+				return "[" + ss.str() + "]";
+			else
+				return ss.str();
 		}
 
 		template<class Type>
@@ -53,6 +56,7 @@ namespace Fuse {
 		void check_or_create_directory(std::string directory);
 		std::string check_or_create_directory_from_filename(std::string filename);
 		std::string get_directory_from_filename(const std::string& filename);
+		std::string get_filename_from_full_path(const std::string& fully_qualified);
 		std::vector<std::string> split_string_to_vector(const std::string& s, char delim);
 		std::string lowercase(const std::string str);
 		std::vector<std::string> vector_to_lowercase(const std::vector<std::string> word_list);

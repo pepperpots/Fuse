@@ -82,8 +82,7 @@ bool Fuse::Profiling::Openstream::execute(
 
 	Fuse::Event_set uppercase_events = Fuse::Util::vector_to_uppercase(profiled_events); // Because PAPI events are always uppercase
 
-	std::string events_str = Fuse::Util::vector_to_string(uppercase_events); // Returns a list in the form [event,event,...]
-	events_str = events_str.substr(1,events_str.size()-2); // Remove first and last brackets
+	std::string events_str = Fuse::Util::vector_to_string(uppercase_events, false);
 
 	std::stringstream ss;
 	ss << "WS_PAPI_EVENTS=" << events_str;
