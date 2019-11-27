@@ -1,4 +1,5 @@
 #include "fuse.h"
+#include "analysis.h"
 #include "config.h"
 #include "target.h"
 #include "combination.h"
@@ -10,6 +11,7 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <numeric>
 #include <ctime>
 #include <iostream>
 #include <iomanip>
@@ -169,9 +171,9 @@ void Fuse::execute_references(
 
 			Fuse::add_profile_event_values_to_statistics(execution_profile, target.get_statistics());
 
-			auto reference_values = execution_profile->get_value_distribution(reference_set);
+			auto reference_values_per_symbol = execution_profile->get_value_distribution(reference_set);
 
-			target.save_reference_values(ref_idx, instance_idx, reference_set, reference_values);
+			target.save_reference_values_to_disk(ref_idx, instance_idx, reference_set, reference_values_per_symbol);
 
 		}
 
@@ -368,6 +370,116 @@ void Fuse::combine_sequence_repeats(
 	}
 
 	spdlog::info("Completed all requested combinations.");
+
+}
+
+void Fuse::calculate_calibration_tmds(
+		Fuse::Target& target
+		){
+
+	if(Fuse::Config::lazy_load_references == false)
+		target.load_reference_distributions();
+
+	auto reference_pairs = target.get_reference_pairs();
+
+	std::vector<unsigned int> reference_repeats_list(target.get_num_reference_repeats());
+	std::iota(reference_repeats_list.begin(), reference_repeats_list.end(), 0);
+	auto reference_repeat_combinations = Fuse::Util::get_unique_combinations(reference_repeats_list, 2);
+
+	spdlog::info("Calculating calibration TMDs for {} reference pairs and {} combinations of the reference repeats.",
+		reference_pairs.size(),
+		reference_repeat_combinations.size()
+	);
+
+	// We always get calibration TMDs for all symbols, and optionally for each individual symbol
+	std::vector<Fuse::Symbol> symbols = {"all_symbols"};
+	if(Fuse::Config::calculate_per_workfunction_tmds){
+		auto all_symbols = target.get_statistics()->get_unique_symbols();
+		symbols.insert(symbols.end(), all_symbols.begin(), all_symbols.end());
+	}
+
+	unsigned int pair_idx = 0;
+	for(auto reference_pair : reference_pairs){
+
+		// Map of symbol to (list of the symbol's reference tmds for each combination of repeats)
+		std::map<Fuse::Symbol, std::vector<double> > reference_tmd_per_combination_per_symbol;
+
+		// Map of symbol to (list of the number of instances of that symbol for each combination of repeats)
+		std::map<Fuse::Symbol, std::vector<double> > num_instances_per_combination_per_symbol;
+
+		for(auto combination : reference_repeat_combinations){
+
+			for(auto symbol : symbols){
+
+				std::vector<Fuse::Symbol> constrained_symbols;
+				if(symbol != "all_symbols")
+					constrained_symbols = {symbol};
+
+				auto distribution_one = target.get_or_load_reference_distribution(reference_pair, combination.at(0), constrained_symbols);
+				auto distribution_two = target.get_or_load_reference_distribution(reference_pair, combination.at(1), constrained_symbols);
+
+				std::vector<std::pair<int64_t, int64_t> > bounds_per_event;
+				for(auto event : reference_pair)
+					bounds_per_event.push_back(target.get_statistics()->get_bounds(event, symbol));
+
+				auto tmd = Fuse::Analysis::calculate_uncalibrated_tmd(distribution_one, distribution_two, bounds_per_event); // ... needs bounds
+
+				auto symbol_iter = reference_tmd_per_combination_per_symbol.find(symbol);
+				if(symbol_iter == reference_tmd_per_combination_per_symbol.end()){
+
+					std::vector<double> tmds_per_combination_for_this_symbol = {tmd};
+					std::vector<double> num_instances_per_combination_for_this_symbol = {static_cast<double>(distribution_one.size())};
+
+					reference_tmd_per_combination_per_symbol.insert(std::make_pair(symbol, tmds_per_combination_for_this_symbol));
+					num_instances_per_combination_per_symbol.insert(std::make_pair(symbol, num_instances_per_combination_for_this_symbol));
+
+				} else {
+
+					symbol_iter->second.push_back(tmd);
+					num_instances_per_combination_per_symbol.find(symbol)->second.push_back(static_cast<double>(distribution_one.size()));
+
+				}
+
+			}
+
+		}
+
+		// Now, for each symbol, average the tmds across the combinations to give the calibration tmd for the symbol for the pair
+
+		for(auto symbol : symbols){
+
+			auto tmds = reference_tmd_per_combination_per_symbol.find(symbol)->second;
+			auto num_instances_list = num_instances_per_combination_per_symbol.find(symbol)->second;
+
+			Fuse::Stats tmd_stats = Fuse::calculate_stats_from_values(tmds);
+			auto median_tmd = Fuse::calculate_median_from_values(tmds);
+
+			Fuse::Stats num_instances_stats = Fuse::calculate_stats_from_values(num_instances_list);
+
+			if(num_instances_stats.min != num_instances_stats.max)
+				spdlog::warn("Reference distribution for {} and symbol '{}' has variable instance counts across combinations (from {} to {}).",
+					Fuse::Util::vector_to_string(reference_pair),
+					symbol,
+					num_instances_stats.min,
+					num_instances_stats.max
+				);
+
+			target.save_reference_calibration_tmd_to_disk(
+				symbol,
+				reference_pair,
+				pair_idx,
+				tmd_stats.min,
+				tmd_stats.max,
+				tmd_stats.mean,
+				tmd_stats.std,
+				median_tmd,
+				num_instances_stats.mean
+			);
+
+		}
+
+		pair_idx++;
+	}
 
 }
 

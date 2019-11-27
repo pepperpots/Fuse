@@ -26,11 +26,19 @@ namespace Fuse {
 			std::string logs_directory;
 			std::string statistics_filename;
 
-			std::vector<Event_set> reference_sets;
+			std::vector<Fuse::Event_set> reference_sets;
 			unsigned int num_reference_repeats;
-			std::map<unsigned int, std::vector<std::vector<int64_t> > > loaded_references;
 
-			Event_set target_events;
+			// Map from reference set index to (map of repeat index to (map of symbol to list of value-vector for each instance))
+			std::map<unsigned int,
+					std::map<unsigned int,
+						std::map<Fuse::Symbol, std::vector<std::vector<int64_t> >	>
+					>
+				> loaded_reference_distributions;
+
+			Fuse::Event_set target_events;
+			std::vector<Fuse::Symbol> symbols;
+
 			Fuse::Combination_sequence bc_sequence;
 			Fuse::Combination_sequence minimal_sequence;
 			unsigned int num_bc_sequence_repeats;
@@ -89,17 +97,49 @@ namespace Fuse {
 			unsigned int get_num_reference_repeats();
 			void increment_num_reference_repeats();
 			std::vector<Fuse::Event_set> get_or_generate_reference_sets();
+			std::vector<Fuse::Event_set> get_reference_pairs();
+
+			unsigned int get_reference_set_index_for_events(
+				Fuse::Event_set events
+			);
 
 			std::string get_reference_filename_for(
 				unsigned int reference_idx,
 				unsigned int repeat_idx
 			);
 
-			void save_reference_values(
+			void save_reference_values_to_disk(
 				unsigned int reference_idx,
 				unsigned int repeat_idx,
 				Fuse::Event_set reference_set,
-				std::vector<std::vector<int64_t> > values
+				std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > values_per_symbol
+			);
+
+			void save_reference_calibration_tmd_to_disk(
+				Fuse::Symbol symbol,
+				Fuse::Event_set events,
+				unsigned int reference_idx,
+				double min,
+				double max,
+				double mean,
+				double median,
+				double std,
+				double mean_num_instances
+			);
+
+			std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
+				get_reference_calibration(
+			);
+
+			void load_reference_distributions(
+				std::vector<unsigned int> reference_set_indexes_to_load = std::vector<unsigned int>(),
+				std::vector<unsigned int> reference_repeats_to_load = std::vector<unsigned int>()
+			);
+
+			std::vector<std::vector<int64_t> > get_or_load_reference_distribution(
+				Fuse::Event_set events,
+				unsigned int repeat_idx,
+				std::vector<Fuse::Symbol>& symbols
 			);
 
 			void compress_references_tracefiles(
@@ -112,7 +152,7 @@ namespace Fuse {
 			Fuse::Event_set get_filtered_events();
 			void set_filtered_events(Fuse::Event_set filter_to_events);
 			bool get_should_clear_cache();
-			Event_set get_target_events();
+			Fuse::Event_set get_target_events();
 			Fuse::Runtime get_target_runtime();
 			std::string get_target_binary();
 			std::string get_target_args();
@@ -120,9 +160,14 @@ namespace Fuse {
 			std::string get_tracefiles_directory();
 			std::string get_references_directory();
 			std::string get_combination_filename(Fuse::Strategy strategy, unsigned int repeat_idx);
+			std::string get_calibration_tmds_filename();
 			void save();
 
 		private:
+			std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > load_reference_distribution(
+				unsigned int reference_idx,
+				unsigned int repeat_idx
+			);
 			void parse_json_mandatory(nlohmann::json& j);
 			void parse_json_optional(nlohmann::json& j);
 			void generate_json_mandatory(nlohmann::json& j);

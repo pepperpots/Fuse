@@ -236,6 +236,10 @@ void run_main_options(const cxxopts::ParseResult& options_parse_result){
 		Fuse::combine_sequence_repeats(fuse_target, strategies, repeat_indexes, minimal);
 	}
 
+	if(options_parse_result.count("run_calibration")){
+		Fuse::calculate_calibration_tmds(fuse_target);
+	}
+
 }
 
 void run_utility_options(const cxxopts::ParseResult& options_parse_result){

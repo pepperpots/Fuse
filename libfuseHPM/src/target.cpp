@@ -102,13 +102,13 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 
 			struct Fuse::Sequence_part part;
 
-			Event_set overlapping = sequence_part["overlapping"];
+			Fuse::Event_set overlapping = sequence_part["overlapping"];
 			overlapping = Fuse::Util::vector_to_lowercase(overlapping);
-			Event_set unique = sequence_part["unique"];
+			Fuse::Event_set unique = sequence_part["unique"];
 			unique = Fuse::Util::vector_to_lowercase(unique);
 
 			/* Check that overlapping events are not-unique */
-			Event_set intersection_check;
+			Fuse::Event_set intersection_check;
 			std::set_difference(overlapping.begin(),overlapping.end(),
 				unique_events_so_far.begin(),unique_events_so_far.end(),
 				std::back_inserter(intersection_check));
@@ -151,11 +151,11 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 			if(sequence_part.count("unique") == false || sequence_part["unique"].is_null())
 				throw std::invalid_argument("Minimal sequence in target JSON does not contain a valid set of unique events.");
 
-			Event_set unique = sequence_part["unique"];
+			Fuse::Event_set unique = sequence_part["unique"];
 			unique = Fuse::Util::vector_to_lowercase(unique);
 
 			/* Check that unique events are unique */
-			Event_set intersection_check;
+			Fuse::Event_set intersection_check;
 			std::set_intersection(unique_events_so_far.begin(),unique_events_so_far.end(),
 				unique.begin(),unique.end(),
 				std::back_inserter(intersection_check));
@@ -451,6 +451,16 @@ bool Fuse::Target::get_should_clear_cache(){
 	return this->should_clear_cache;
 }
 
+std::string Fuse::Target::get_calibration_tmds_filename(){
+
+	auto references_directory = this->get_references_directory();
+
+	std::stringstream ss;
+	ss << references_directory << "/calibration_tmds_" << Fuse::Config::tmd_bin_count << ".csv";
+
+	return ss.str();
+}
+
 Fuse::Statistics_p Fuse::Target::get_statistics(){
 	if(this->statistics == nullptr)
 		throw std::runtime_error("Tried to get event statistics, but they have not yet been initialized.");
@@ -713,11 +723,11 @@ std::string Fuse::Target::get_reference_filename_for(
 	return ss.str();
 }
 
-void Fuse::Target::save_reference_values(
+void Fuse::Target::save_reference_values_to_disk(
 		unsigned int reference_idx,
 		unsigned int repeat_idx,
 		Fuse::Event_set reference_set,
-		std::vector<std::vector<int64_t> > values
+		std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > values_per_symbol
 		){
 
 	// I want to write the reference values as a compact binary format, to save space
@@ -733,19 +743,349 @@ void Fuse::Target::save_reference_values(
 	if(file_stream.is_open() == false)
 		throw std::runtime_error(fmt::format("Unable to open {} to write reference distribution data.", ref_filename));
 
-	auto num_events = reference_set.size();
+	unsigned int num_events = reference_set.size();
 	file_stream.write(reinterpret_cast<char*>(&num_events), sizeof(num_events));
 
 	for(auto event : reference_set){
-		auto num_chars = event.size();
+		unsigned int num_chars = event.size();
 		file_stream.write(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
 		file_stream.write(event.c_str(),num_chars);
 	}
 
-	for(auto instance_values : values)
-		file_stream.write(reinterpret_cast<char*>(&instance_values[0]), instance_values.size()*sizeof(instance_values[0]));
+	unsigned int num_symbols = values_per_symbol.size();
+	file_stream.write(reinterpret_cast<char*>(&num_symbols), sizeof(num_symbols));
+
+	for(auto symbol_iter : values_per_symbol){
+
+		auto symbol = symbol_iter.first;
+		unsigned int num_chars = symbol.size();
+		file_stream.write(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
+		file_stream.write(symbol.c_str(),num_chars);
+
+		auto values = symbol_iter.second;
+
+		unsigned int num_instances = values.size();
+		file_stream.write(reinterpret_cast<char*>(&num_instances), sizeof(num_instances));
+
+		for(auto instance_values : values)
+			file_stream.write(reinterpret_cast<char*>(&instance_values[0]), instance_values.size()*sizeof(instance_values[0]));
+
+	}
 
 	file_stream.close();
+
+}
+
+void Fuse::Target::load_reference_distributions(
+		std::vector<unsigned int> reference_set_indexes_to_load,
+		std::vector<unsigned int> reference_repeats_to_load
+		){
+
+	// TODO check if we have defined reference sets?
+
+	if(reference_repeats_to_load.size() == 0){
+		reference_repeats_to_load.assign(this->get_num_reference_repeats(),0);
+		std::iota(reference_repeats_to_load.begin(), reference_repeats_to_load.end(), 0);
+	}
+	if(reference_set_indexes_to_load.size() == 0){
+		reference_set_indexes_to_load.assign(this->reference_sets.size(),0);
+		std::iota(reference_set_indexes_to_load.begin(), reference_set_indexes_to_load.end(), 0);
+	}
+
+	for(auto repeat : reference_repeats_to_load){
+
+		for(auto ref_set_idx : reference_set_indexes_to_load){
+
+			auto reference_distribution = this->load_reference_distribution(ref_set_idx, repeat);
+
+			// Add the reference distribution to the map
+			auto reference_set_iter = this->loaded_reference_distributions.find(ref_set_idx);
+			if(reference_set_iter == this->loaded_reference_distributions.end()){
+
+				std::map<unsigned int, std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > > repeats_for_set;
+				repeats_for_set.insert(std::make_pair(repeat, reference_distribution));
+				this->loaded_reference_distributions.insert(std::make_pair(ref_set_idx, repeats_for_set));
+
+			} else {
+
+				auto repeat_iter = reference_set_iter->second.find(repeat);
+				if(repeat_iter != reference_set_iter->second.end())
+					spdlog::warn("Loaded a reference distribution that was already loaded (reference {} and repeat {}).",
+						ref_set_idx, repeat);
+
+				reference_set_iter->second[repeat] = reference_distribution; // Replaces if exists
+
+			}
+
+		}
+
+	}
+
+}
+
+std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribution(
+		Fuse::Event_set events,
+		unsigned int repeat_idx,
+		std::vector<Fuse::Symbol>& symbols
+		){
+
+	std::map<Fuse::Symbol, std::vector<std::vector<int64_t > > > reference_distribution_per_symbol;
+
+	auto reference_set_idx = this->get_reference_set_index_for_events(events);
+	auto reference_set_iter = this->loaded_reference_distributions.find(reference_set_idx);
+
+	// Load it if it is not loaded
+	bool was_loaded = true;
+	if(reference_set_iter == this->loaded_reference_distributions.end()){
+
+		reference_distribution_per_symbol = this->load_reference_distribution(reference_set_idx, repeat_idx);
+		was_loaded = false;
+
+	} else {
+
+		auto repeat_iter = reference_set_iter->second.find(repeat_idx);
+		if(repeat_iter == reference_set_iter->second.end()){
+
+			reference_distribution_per_symbol = this->load_reference_distribution(reference_set_idx, repeat_idx);
+			was_loaded = false;
+
+		} else {
+
+			reference_distribution_per_symbol = repeat_iter->second;
+
+		}
+
+	}
+
+	// Now filter for symbols
+	if(symbols.size() == 0){
+		symbols.reserve(reference_distribution_per_symbol.size());
+		for(auto symbol_iter : reference_distribution_per_symbol){
+			symbols.push_back(symbol_iter.first);
+		}
+	}
+
+	std::vector<std::vector<int64_t> > concatenated_distribution;
+	for(auto symbol : symbols){
+		auto values_iter = reference_distribution_per_symbol.find(symbol);
+		if(values_iter == reference_distribution_per_symbol.end())
+			throw std::runtime_error(fmt::format("Cannot retrieve instances for symbol {} as this symbol does not exist.", symbol));
+
+		concatenated_distribution.reserve(concatenated_distribution.size() + values_iter->second.size());
+		concatenated_distribution.insert(concatenated_distribution.end(), values_iter->second.begin(), values_iter->second.end());
+	}
+
+	if(was_loaded == false && Config::lazy_load_references == false)
+		spdlog::warn("The reference distribution for events {} (set {}) and for repeat {} was not loaded, but should have been.",
+			Fuse::Util::vector_to_string(events),
+			reference_set_idx,
+			repeat_idx
+		);
+
+	return concatenated_distribution;
+
+}
+
+void Fuse::Target::save_reference_calibration_tmd_to_disk(
+		Fuse::Symbol symbol,
+		Fuse::Event_set events,
+		unsigned int reference_idx,
+		double min,
+		double max,
+		double mean,
+		double std,
+		double median,
+		double mean_num_instances // to be used as a 'weight' for the symbol
+		){
+
+	spdlog::trace("Storing reference calibration TMD for reference index {}.", reference_idx);
+
+	auto filename = this->get_calibration_tmds_filename();
+
+	auto requires_header = true;
+	if(Fuse::Util::check_file_existance(filename))
+		requires_header = false;
+
+	auto file_stream = std::ofstream(filename, std::ios_base::ate);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to store calibration tmds.", filename));
+
+	if(requires_header){
+		std::string header("reference_idx,events,min,max,mean,std,median,mean_num_instances\n");
+		file_stream << header;
+	}
+
+	auto events_str = Fuse::Util::vector_to_string(events,true,"-");
+
+	file_stream << symbol;
+	file_stream << "," << reference_idx;
+	file_stream << "," << events_str;
+	file_stream << "," << min;
+	file_stream << "," << max;
+	file_stream << "," << mean;
+	file_stream << "," << std;
+	file_stream << "," << median;
+	file_stream << "," << mean_num_instances << std::endl;
+
+	file_stream.close();
+
+}
+
+std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
+		Fuse::Target::get_reference_calibration(
+		){
+
+	std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > > calibration_per_reference_per_symbol;
+
+	auto filename = this->get_calibration_tmds_filename();
+
+	auto file_stream = std::ifstream(filename);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to load calibration tmds.", filename));
+
+	std::string line;
+	while(file_stream >> line){
+
+		auto split_line = Fuse::Util::split_string_to_vector(line, ',');
+
+		Fuse::Symbol symbol = split_line.at(0);
+		// There is no conversion to unsigned int, it must be caused from unsigned long!
+		unsigned int reference_idx = static_cast<unsigned int>(std::stoul(split_line.at(1)));
+		double median = std::stod(split_line.at(6));
+		double num_instances = std::stod(split_line.at(7));
+
+		std::pair<double, double> calibration_pair = std::make_pair(median, num_instances);
+
+		auto symbol_iter = calibration_per_reference_per_symbol.find(symbol);
+		if(symbol_iter == calibration_per_reference_per_symbol.end()){
+
+			std::map<unsigned int, std::pair<double, double> > calibration_for_symbol;
+			calibration_for_symbol.insert(std::make_pair(reference_idx, calibration_pair));
+
+			calibration_per_reference_per_symbol.insert(std::make_pair(symbol, calibration_for_symbol));
+
+		} else {
+
+			auto reference_iter = symbol_iter->second.find(reference_idx);
+			if(reference_iter != symbol_iter->second.end())
+				spdlog::warn("When loading calibration TMDs from {}, inserted a calibration for '{}' and pair {} that already exists.",
+					filename,
+					symbol,
+					reference_idx
+				);
+
+			symbol_iter->second[reference_idx] = calibration_pair; // Will replace if exists
+
+		}
+
+	}
+
+	file_stream.close();
+	return calibration_per_reference_per_symbol;
+
+}
+
+unsigned int Fuse::Target::get_reference_set_index_for_events(
+		Fuse::Event_set events
+		){
+
+	std::sort(events.begin(), events.end());
+	auto reference_pairs = this->get_reference_pairs();
+
+	for(decltype(reference_pairs.size()) reference_idx=0; reference_idx<reference_pairs.size(); reference_idx++){
+
+		auto reference_set = reference_pairs.at(reference_idx);
+
+		// Check if all events are in this reference set (there are none left over from set difference)
+		Fuse::Event_set difference;
+		std::set_difference(events.begin(), events.end(), reference_set.begin(), reference_set.end(),
+			std::back_inserter(difference)
+		);
+
+		if(difference.size() == 0)
+			return reference_idx;
+
+	}
+
+	throw std::runtime_error(fmt::format("Cannot find a reference set corresponding to events {}.",
+		Fuse::Util::vector_to_string(events)));
+
+}
+
+std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_reference_distribution(
+		unsigned int reference_idx,
+		unsigned int repeat_idx
+		){
+
+	std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > values_per_symbol;
+
+	auto ref_filename = this->get_reference_filename_for(reference_idx, repeat_idx);
+	spdlog::debug("Reading reference distribution for reference index {} and repeat {} from file {}.",
+		reference_idx,
+		repeat_idx,
+		ref_filename
+	);
+
+	auto file_stream = std::fstream(ref_filename, std::ios::in | std::ios::binary);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to read reference distribution data.", ref_filename));
+
+	try {
+
+		unsigned int num_events = 0;
+		file_stream.read(reinterpret_cast<char*>(&num_events), sizeof(num_events));
+
+		Fuse::Event_set events;
+
+		for(unsigned int event_idx=0; event_idx<num_events; event_idx++){
+
+			unsigned int num_chars = 0;
+			file_stream.read(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
+
+			std::string event;
+			event.reserve(num_chars);
+			file_stream.read(&event[0],num_chars);
+
+			events.push_back(event);
+		}
+
+		unsigned int num_symbols = 0;
+		file_stream.read(reinterpret_cast<char*>(&num_symbols), sizeof(num_symbols));
+
+		for(unsigned int symbol_idx=0; symbol_idx<num_symbols; symbol_idx++){
+
+			unsigned int num_chars = 0;
+			file_stream.read(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
+
+			Fuse::Symbol symbol;
+			symbol.reserve(num_chars);
+			file_stream.read(&symbol[0],num_chars);
+
+			std::vector<std::vector<int64_t> > values;
+
+			unsigned int num_instances = 0;
+			file_stream.read(reinterpret_cast<char*>(&num_instances), sizeof(num_instances));
+			values.reserve(num_instances);
+
+			for(unsigned int instance_idx=0; instance_idx<num_instances; instance_idx++){
+				std::vector<int64_t> instance_values;
+				instance_values.reserve(num_events);
+				file_stream.read(reinterpret_cast<char*>(&instance_values[0]), num_events*sizeof(instance_values[0]));
+				values.push_back(instance_values);
+			}
+
+			values_per_symbol.insert(std::make_pair(symbol, values));
+
+		}
+
+		file_stream.close();
+
+	} catch (std::ios_base::failure& e){
+		throw std::runtime_error(fmt::format("Failed loading reference distribution from file {}. Error was: {}.",
+			ref_filename, e.what()));
+	}
+
+	return values_per_symbol;
 
 }
 
@@ -794,7 +1134,7 @@ void Fuse::Target::compress_references_tracefiles(
 	char buffer[256];
 	std::string result = "";
 
-	auto pipe = popen(compress_cmd.c_str(), "r");
+	pipe = popen(compress_cmd.c_str(), "r");
 	if(pipe == nullptr){
 		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as cannot open pipe for '{}'.",
 			repeat_idx, compress_cmd);
@@ -813,6 +1153,20 @@ void Fuse::Target::compress_references_tracefiles(
 			repeat_idx, compress_cmd, result);
 
 }
+
+std::vector<Fuse::Event_set> Fuse::Target::get_reference_pairs(){
+
+	Fuse::Event_set sorted_events = this->target_events;
+	std::sort(sorted_events.begin(), sorted_events.end());
+
+	auto reference_pairs = Fuse::Util::get_unique_combinations(sorted_events, 2);
+	return reference_pairs;
+
+}
+
+
+
+
 
 
 

@@ -48,6 +48,10 @@ namespace Fuse {
 		bool keep_in_memory = true
 	);
 
+	void calculate_calibration_tmds(
+		Fuse::Target& target
+	);
+
 	/* Initialize or reinitialize library-managed logging */
 	void initialize_logging(std::string log_directory, bool log_to_file, unsigned int log_level);
 

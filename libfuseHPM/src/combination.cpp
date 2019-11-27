@@ -208,7 +208,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 	}
 
 	if(expect_matching)
-		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
+		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<unsigned int>())
 				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles randomly: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
@@ -250,7 +250,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 	}
 
 	if(expect_matching)
-		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
+		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<unsigned int>())
 				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles chronologically: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
@@ -288,7 +288,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 	}
 
 	if(expect_matching)
-		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<>())
+		if(std::adjacent_find(num_instances_per_profile.begin(), num_instances_per_profile.end(), std::not_equal_to<unsigned int>())
 				!= num_instances_per_profile.end())
 			spdlog::warn(fmt::format("Found variable instance counts when combining instances from {} sequence profiles by matching label: {}.",
 				instances_per_profile.size(), Fuse::Util::vector_to_string(num_instances_per_profile)));
@@ -312,7 +312,7 @@ std::vector<std::vector<Fuse::Instance_p> > Fuse::Combination::extract_matched_i
 		}
 
 		if(expect_matching)
-			if(std::adjacent_find(matched_label_strs.begin(), matched_label_strs.end(), std::not_equal_to<>()) != matched_label_strs.end())
+			if(std::adjacent_find(matched_label_strs.begin(), matched_label_strs.end(), std::not_equal_to<std::string>()) != matched_label_strs.end())
 				spdlog::warn("LGL strategy matched different labels across profiles: {}.", Fuse::Util::vector_to_string(matched_label_strs));
 
 		matched_instances.push_back(match);

@@ -3,8 +3,11 @@
 #include "util.h"
 
 #include <gmp.h>
+#include <mpfr.h> // mpfr required for float exponents
+#include <mpf2mpfr.h> // redefines already-written (GMP) mpf code for mpfr
 #include "spdlog/spdlog.h"
 
+#include <numeric>
 #include <ostream>
 #include <fstream>
 #include <map>
@@ -14,6 +17,18 @@ Fuse::Statistics::Statistics(std::string statistics_filename):
 		statistics_filename(statistics_filename),
 		modified(false){
 
+}
+
+std::vector<Fuse::Symbol> Fuse::Statistics::get_unique_symbols(){
+
+	std::vector<Fuse::Symbol> symbols;
+	symbols.reserve(this->stats_by_symbol.size()-1);
+	for(auto symbol_iter : this->stats_by_symbol){
+		if(symbol_iter.first != "all_symbols")
+			symbols.push_back(symbol_iter.first);
+	}
+
+	return symbols;
 }
 
 void Fuse::Statistics::load(){
@@ -31,9 +46,8 @@ void Fuse::Statistics::load(){
 	in >> header;
 
 	std::string line;
-	in >> line;
 
-	while(in.good()){
+	while(in >> line){
 
 		auto split_line = Fuse::Util::split_string_to_vector(line,',');
 
@@ -44,8 +58,8 @@ void Fuse::Statistics::load(){
 		Fuse::Symbol symbol = split_line.at(0);
 		Fuse::Event event = split_line.at(1);
 
-		int64_t min = std::stoll(split_line.at(2));
-		int64_t max = std::stoll(split_line.at(3));
+		double min = std::stod(split_line.at(2));
+		double max = std::stod(split_line.at(3));
 		double mean = std::stod(split_line.at(4));
 		double std = std::stod(split_line.at(5));
 
@@ -80,8 +94,6 @@ void Fuse::Statistics::load(){
 			symbol_iter->second.insert(std::make_pair(event, run_stats));
 
 		}
-
-		in >> line;
 
 	}
 
@@ -160,8 +172,8 @@ void Fuse::Statistics::add_event_value(
 			mpf_init_set_d(stats.old_s,0.0);
 			mpf_init_set_d(stats.new_s,0.0);
 
-			stats.min = value;
-			stats.max = value;
+			stats.min = static_cast<double>(value);
+			stats.max = static_cast<double>(value);
 
 			std::map<Fuse::Event,Fuse::Running_stats> running_stats_per_event;
 			running_stats_per_event.insert(std::make_pair(event, stats));
@@ -180,8 +192,8 @@ void Fuse::Statistics::add_event_value(
 				mpf_init_set_d(stats.old_s,0.0);
 				mpf_init_set_d(stats.new_s,0.0);
 
-				stats.min = value;
-				stats.max = value;
+				stats.min = static_cast<double>(value);
+				stats.max = static_cast<double>(value);
 
 				symbol_iter->second.insert(std::make_pair(event, stats));
 
@@ -213,11 +225,11 @@ void Fuse::Statistics::add_event_value(
 				mpf_set(stats.old_m, stats.new_m);
 				mpf_set(stats.old_s, stats.new_s);
 
-				if(value < stats.min)
-					stats.min = value;
+				if(static_cast<double>(value) < stats.min)
+					stats.min = static_cast<double>(value);
 
-				if(value > stats.max)
-					stats.max = value;
+				if(static_cast<double>(value) > stats.max)
+					stats.max = static_cast<double>(value);
 
 				event_iter->second = stats;
 
@@ -247,7 +259,7 @@ std::pair<int64_t,int64_t> Fuse::Statistics::get_bounds(
 	if(event_iter == symbol_iter->second.end())
 		throw std::runtime_error(fmt::format("No bounds exist for symbol {} and event {}.", symbol, event));
 
-	return std::make_pair(event_iter->second.min, event_iter->second.max);
+	return std::make_pair(static_cast<int64_t>(event_iter->second.min), static_cast<int64_t>(event_iter->second.max));
 
 }
 
@@ -333,8 +345,8 @@ void Fuse::Statistics::calculate_statistics_from_running(){
 void Fuse::Statistics::save_stats_for_symbol(
 		Fuse::Event event,
 		Fuse::Symbol symbol,
-		int64_t min,
-		int64_t max,
+		double min,
+		double max,
 		double mean,
 		double std
 		){
@@ -357,6 +369,105 @@ void Fuse::Statistics::save_stats_for_symbol(
 		symbol_iter->second[event] = stats; // Will replace current values
 
 	}
+}
+
+// Assuming no need for GMP
+Fuse::Stats Fuse::calculate_stats_from_values(std::vector<double> values){
+
+	auto n = values.size();
+	if(n == 0)
+		throw std::runtime_error("Cannot calculate stats from an empty value vector.");
+
+	std::sort(values.begin(), values.end());
+	double min = *values.begin();
+	double max = *(values.end()-1);
+
+	double mean = std::accumulate(values.begin(), values.end(), 0.0) / n;
+
+	std::vector<double> variations_from_mean(n);
+	std::transform(values.begin(), values.end(), variations_from_mean.begin(), [mean](double x) { return x - mean; });
+
+	double variance = std::inner_product(
+		variations_from_mean.begin(),
+		variations_from_mean.end(),
+		variations_from_mean.begin(),
+		0.0
+	);
+
+	double std = std::sqrt(variance);
+
+	Fuse::Stats stats;
+	stats.min = min;
+	stats.max = max;
+	stats.mean = mean;
+	stats.std = std;
+
+	return stats;
 
 }
+
+double Fuse::calculate_median_from_values(std::vector<double> values){
+
+	auto n = values.size();
+	if(n == 0)
+		throw std::runtime_error("Cannot calculate median value from an empty value vector.");
+
+	std::sort(values.begin(), values.end());
+
+	if(n % 2 == 0)
+		return (values.at((n/2)-1) + values.at((n/2))) / 2.0;
+	else
+		return values.at((n/2)-1);
+
+}
+
+double Fuse::calculate_weighted_geometric_mean(std::vector<double> samples, std::vector<double> weights){
+
+	mpfr_t product;
+	mpfr_init_set_d(product, 1.0, MPFR_RNDD); // prod({sample_i}^{w_i} for i in num_samples)
+
+	mpfr_t weights_summed;
+	mpfr_init_set_d(weights_summed, 0.0, MPFR_RNDD); // sum({w_i} for i in num_samples)
+
+	// geomean = product ^ (1 / weights_summed)
+
+	for(decltype(samples.size()) i=0; i<samples.size(); i++){
+
+		mpfr_t sample;
+		mpfr_init_set_d(sample, samples.at(i), MPFR_RNDD);
+
+		mpfr_t weight;
+		mpfr_init_set_d(weight, weights.at(i), MPFR_RNDD);
+
+		mpfr_add(weights_summed, weights_summed, weight, MPFR_RNDD);
+
+		mpfr_pow(sample, sample, weight, MPFR_RNDD);
+
+		mpfr_mul(product, product, sample, MPFR_RNDD);
+
+		mpfr_clears(sample, weight, (mpfr_ptr) nullptr);
+	}
+
+	// Getting (1 / weights_summed)
+	mpfr_t exponent_numerator;
+	mpfr_init_set_d(exponent_numerator, 1.0, MPFR_RNDD);
+
+	mpfr_t exponent;
+	mpfr_init(exponent);
+	mpfr_div(exponent, exponent_numerator, weights_summed, MPFR_RNDD);
+
+	// Getting geomean
+	mpfr_t geometric_mean;
+	mpfr_init(geometric_mean);
+	mpfr_pow(geometric_mean, product, exponent, MPFR_RNDD);
+
+	double gmean = mpfr_get_d(geometric_mean, MPFR_RNDD);
+
+	mpfr_clears(product, weights_summed, exponent_numerator, exponent, geometric_mean, (mpfr_ptr) nullptr);
+
+	return gmean;
+
+}
+
+
 

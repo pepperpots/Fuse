@@ -1,6 +1,7 @@
 #ifndef FUSE_TYPES_H
 #define FUSE_TYPES_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>

@@ -23,6 +23,7 @@ add_library(fuseHPM SHARED
 	src/profiling.cpp
 	src/combination.cpp
 	src/statistics.cpp
+	src/analysis.cpp
 )
 
 find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
@@ -45,12 +46,18 @@ if(NOT GMP_LIB)
 	message(FATAL_ERROR "Cannot find libgmp")
 endif()
 
+find_library(MPFR_LIB mpfr REQUIRED)
+if(NOT MPFR_LIB)
+	message(FATAL_ERROR "Cannot find libmpfr")
+endif()
+
 target_include_directories(fuseHPM PRIVATE
+	external/fast_emd
 	external/spdlog/include
 	external/json/include
 	${AFTERMATH_INCLUDE_DIR}
 	include
 )
 
-target_link_libraries(fuseHPM spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB})
+target_link_libraries(fuseHPM spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB} ${MPFR_LIB})
 

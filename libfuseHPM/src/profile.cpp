@@ -1129,34 +1129,47 @@ void Fuse::Execution_profile::interpolate_and_append_counter_values(
 
 }
 
-std::vector<std::vector<int64_t> > Fuse::Execution_profile::get_value_distribution(
+std::map<std::string, std::vector<std::vector<int64_t> > > Fuse::Execution_profile::get_value_distribution(
 		Fuse::Event_set events,
 		const std::vector<Fuse::Symbol> symbols
 		){
 
-	auto instances = this->get_instances(symbols);
+	std::map<std::string, std::vector<std::vector<int64_t> > > distribution_per_symbol;
 
-	std::vector<std::vector<int64_t> > values;
-	values.reserve(instances.size());
-	for(auto instance : instances){
+	if(symbols.size() == 0)
+		symbols = this->get_unique_symbols();
 
-		bool error = false;
+	for(auto symbol : symbols){
 
-		std::vector<int64_t> instance_values;
-		instance_values.reserve(events.size());
-		for(auto event : events)
-			instance_values.push_back(instance->get_event_value(event, error));
+		std::vector<Fuse::Symbol> constrained_symbols = {symbol};
 
-		if(error)
-			throw std::runtime_error(
-				fmt::format("Requested distribution for events {}, but instance {} in {} does not have values for them all.",
-				Fuse::Util::vector_to_string(events), Fuse::Util::vector_to_string(instance->label), this->tracefile));
+		auto instances = this->get_instances(constrained_symbols);
 
-		values.push_back(instance_values);
+		std::vector<std::vector<int64_t> > values;
+		values.reserve(instances.size());
+		for(auto instance : instances){
+
+			bool error = false;
+
+			std::vector<int64_t> instance_values;
+			instance_values.reserve(events.size());
+			for(auto event : events)
+				instance_values.push_back(instance->get_event_value(event, error));
+
+			if(error)
+				throw std::runtime_error(
+					fmt::format("Requested distribution for events {}, but instance {} in {} does not have values for them all.",
+					Fuse::Util::vector_to_string(events), Fuse::Util::vector_to_string(instance->label), this->tracefile));
+
+			values.push_back(instance_values);
+
+		}
+
+		distribution_per_symbol.insert(std::make_pair(symbol, values));
 
 	}
 
-	return values;
+	return distribution_per_symbol;
 
 }
 

@@ -4,6 +4,8 @@
 #include "fuse_types.h"
 
 #include <gmp.h>
+#include <mpfr.h> // mpfr required for float exponents
+#include <mpf2mpfr.h> // redefines already-written (GMP) mpf code for mpfr
 
 #include <map>
 #include <string>
@@ -17,16 +19,20 @@ namespace Fuse {
 		mpf_t old_s;
 		mpf_t new_s;
 
-		int64_t min;
-		int64_t max;
+		double min;
+		double max;
 	};
 
 	struct Stats {
-		int64_t min;
-		int64_t max;
+		double min;
+		double max;
 		double mean;
 		double std;
 	};
+
+	Fuse::Stats calculate_stats_from_values(std::vector<double> values);
+	double calculate_median_from_values(std::vector<double> values);
+	double calculate_weighted_geometric_mean(std::vector<double> samples, std::vector<double> weights);
 
 	class Statistics {
 
@@ -60,6 +66,8 @@ namespace Fuse {
 				Fuse::Symbol symbol = Fuse::Symbol("all_symbols")
 			);
 
+			std::vector<Fuse::Symbol> get_unique_symbols();
+
 			void load();
 			void save();
 
@@ -67,8 +75,8 @@ namespace Fuse {
 			void save_stats_for_symbol(
 				Fuse::Event event,
 				Fuse::Symbol symbol,
-				int64_t min,
-				int64_t max,
+				double min,
+				double max,
 				double mean,
 				double std
 			);

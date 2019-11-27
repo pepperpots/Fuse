@@ -40,7 +40,7 @@ namespace Fuse {
 
 			do {
 				std::vector<Type> current_combination;
-				for(int i = 0; i < n; ++i){
+				for(decltype(n) i = 0; i < n; ++i){
 					if(selectors[i]){
 						current_combination.push_back(list.at(i));
 					}

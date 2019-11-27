@@ -54,7 +54,7 @@ namespace Fuse {
 				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
 			);
 
-			std::vector<std::vector<int64_t> > get_value_distribution(
+			std::map<std::string, std::vector<std::vector<int64_t> > > get_value_distribution(
 				Fuse::Event_set events,
 				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
 			);
