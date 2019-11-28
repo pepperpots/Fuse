@@ -55,8 +55,8 @@ namespace Fuse {
 		bool check_file_existance(std::string filename);
 		void check_or_create_directory(std::string directory);
 		std::string check_or_create_directory_from_filename(std::string filename);
-		std::string get_directory_from_filename(const std::string& filename);
-		std::string get_filename_from_full_path(const std::string& fully_qualified);
+		std::string get_directory_from_filename(const std::string filename);
+		std::string get_filename_from_full_path(std::string fully_qualified);
 		std::vector<std::string> split_string_to_vector(const std::string& s, char delim);
 		std::string lowercase(const std::string str);
 		std::vector<std::string> vector_to_lowercase(const std::vector<std::string> word_list);

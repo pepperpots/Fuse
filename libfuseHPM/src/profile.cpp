@@ -10,6 +10,11 @@
 #include <set>
 #include <sstream>
 
+// External C code generates lots of warnings
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpointer-arith"
 extern "C" {
 	// linux-kernel/list uses 'new' as a variable name, so must be redefined to avoid conflict with c++ keyword
 	#define new extern_new
@@ -17,6 +22,8 @@ extern "C" {
 	#include "aftermath/core/debug.h"
 	#undef new
 }
+#pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
 
 Fuse::Execution_profile::Execution_profile(
 		std::string tracefile,
@@ -63,12 +70,18 @@ Fuse::Event_set Fuse::Execution_profile::get_unique_events(){
 	return this->events;
 }
 
-std::vector<Fuse::Symbol> Fuse::Execution_profile::get_unique_symbols(){
+std::vector<Fuse::Symbol> Fuse::Execution_profile::get_unique_symbols(bool include_runtime){
 
 	std::vector<Fuse::Symbol> unique_symbols;
-	for(auto symbol_pair : this->instances)
+	for(auto symbol_pair : this->instances){
+
+		if(include_runtime == false && symbol_pair.first == "runtime")
+			continue;
+
 		if(std::find(unique_symbols.begin(), unique_symbols.end(), symbol_pair.first) == unique_symbols.end())
 			unique_symbols.push_back(symbol_pair.first);
+
+	}
 
 	return unique_symbols;
 }
@@ -81,11 +94,17 @@ void Fuse::Execution_profile::add_event(Fuse::Event event){
 }
 
 // If symbols is empty (or not provided), then this will return all instances for all symbols
-std::vector<Fuse::Instance_p> Fuse::Execution_profile::get_instances(const std::vector<Fuse::Symbol> symbols){
+std::vector<Fuse::Instance_p> Fuse::Execution_profile::get_instances(
+		bool include_runtime,
+		const std::vector<Fuse::Symbol> symbols
+		){
 
 	std::vector<Fuse::Instance_p> all_instances;
 
 	for(auto symbol_pair : this->instances){
+
+		if(include_runtime == false && symbol_pair.first == "runtime")
+			continue;
 
 		if(symbols.size() > 0)
 			if(std::find(symbols.begin(), symbols.end(), symbol_pair.first) == symbols.end())
@@ -129,7 +148,7 @@ void Fuse::Execution_profile::print_to_file(std::string output_file){
 
 		out << header_ss.str() << "\n";
 
-		std::vector<Fuse::Instance_p> all_instances = this->get_instances();
+		std::vector<Fuse::Instance_p> all_instances = this->get_instances(true);
 		std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 		for(auto instance : all_instances){
@@ -179,10 +198,10 @@ void Fuse::Execution_profile::dump_instance_dependencies(std::string output_file
 
 	spdlog::info("Dumping the data-dependency DAG as a dense adjacency matrix to {}", output_file);
 
-	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances(false);
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
-	spdlog::trace("Dumping the instance dependencies for {} instances, of which {} have dependencies.", all_instances.size(), this->instance_dependencies.size());
+	spdlog::debug("Dumping the instance dependencies for {} instances, of which {} have dependencies.", all_instances.size(), this->instance_dependencies.size());
 
 	std::ofstream dense_adj(output_file);
 
@@ -270,7 +289,7 @@ void Fuse::Execution_profile::dump_instance_dependencies_dot(std::string output_
 	std::string filestring = "digraph D {\n";
 	graph << filestring;
 
-	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances(false);
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 	// Each label is associated with its ordered index in all_instances
@@ -981,9 +1000,9 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 			>& data_accesses
 		){
 
-	spdlog::trace("Loading openstream instance dependencies.");
+	spdlog::debug("Loading openstream instance dependencies.");
 
-	std::vector<Fuse::Instance_p> all_instances = this->get_instances();
+	std::vector<Fuse::Instance_p> all_instances = this->get_instances(false);
 	std::sort(all_instances.begin(), all_instances.end(), comp_instances_by_label_dfs);
 
 	spdlog::trace("There are {} data intervals that are accessed.", data_accesses.iterative_size());
@@ -1045,7 +1064,7 @@ void Fuse::Execution_profile::load_openstream_instance_dependencies(std::vector<
 
 	}
 
-	spdlog::trace("Finished loading openstream instance dependencies.");
+	spdlog::debug("Finished loading openstream instance dependencies.");
 
 }
 
@@ -1131,19 +1150,25 @@ void Fuse::Execution_profile::interpolate_and_append_counter_values(
 
 std::map<std::string, std::vector<std::vector<int64_t> > > Fuse::Execution_profile::get_value_distribution(
 		Fuse::Event_set events,
+		bool include_runtime,
 		const std::vector<Fuse::Symbol> symbols
 		){
 
 	std::map<std::string, std::vector<std::vector<int64_t> > > distribution_per_symbol;
 
-	if(symbols.size() == 0)
-		symbols = this->get_unique_symbols();
+	auto requested_symbols = symbols;
 
-	for(auto symbol : symbols){
+	if(symbols.size() == 0)
+		requested_symbols = this->get_unique_symbols(include_runtime);
+
+	for(auto symbol : requested_symbols){
+
+		if(include_runtime == false && symbol == "runtime")
+			throw std::logic_error("Requested runtime instances, but include_runtime was false.");
 
 		std::vector<Fuse::Symbol> constrained_symbols = {symbol};
 
-		auto instances = this->get_instances(constrained_symbols);
+		auto instances = this->get_instances(include_runtime, constrained_symbols);
 
 		std::vector<std::vector<int64_t> > values;
 		values.reserve(instances.size());
@@ -1158,8 +1183,13 @@ std::map<std::string, std::vector<std::vector<int64_t> > > Fuse::Execution_profi
 
 			if(error)
 				throw std::runtime_error(
-					fmt::format("Requested distribution for events {}, but instance {} in {} does not have values for them all.",
-					Fuse::Util::vector_to_string(events), Fuse::Util::vector_to_string(instance->label), this->tracefile));
+					fmt::format("Requested distribution for events {}, but instance {} in {} does not have values for them all. {}",
+						Fuse::Util::vector_to_string(events),
+						Fuse::Util::vector_to_string(instance->label),
+						this->tracefile,
+						fmt::format("The instance only contains values for events: {}", Fuse::Util::vector_to_string(instance->get_events()))
+						)
+				);
 
 			values.push_back(instance_values);
 

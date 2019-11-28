@@ -27,7 +27,9 @@ void Fuse::Target::parse_json_mandatory(nlohmann::json& j){
 					static_cast<std::string>(j["runtime"])));
 
 	for(auto event : j["target_events"])
-		this->target_events.push_back(event);
+		this->target_events.push_back(Fuse::Util::lowercase(event));
+
+	std::sort(this->target_events.begin(), this->target_events.end());
 
 	this->references_directory = j["references_directory"];
 	this->tracefiles_directory = j["tracefiles_directory"];
@@ -85,7 +87,7 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 
 	if(j.count("reference_sets") && j["reference_sets"].is_null() == false){
 		for(auto set_iter : j["reference_sets"])
-			this->reference_sets.push_back(set_iter);
+			this->reference_sets.push_back(Fuse::Util::vector_to_lowercase(set_iter));
 	}
 
 	Event_set unique_events_so_far;
@@ -656,12 +658,15 @@ std::vector<Fuse::Event_set> Fuse::Target::get_or_generate_reference_sets(){
 	// First, generate all the desired pairs: each event is mapped to a list of events it needs paired with
 	std::vector<Fuse::Event_set> remaining_pairs;
 	Fuse::Event_set events = this->target_events;
-	std::reverse(events.begin(),events.end());
 
 	while(events.size() > 1){
-		Fuse::Event event = events.back();
-		events.pop_back();
-		remaining_pairs.push_back(events);
+		Fuse::Event event = events.front();
+		events.erase(events.begin());
+
+		Fuse::Event_set target_list;
+		target_list.insert(target_list.end(), events.begin(), events.end());
+
+		remaining_pairs.push_back(target_list);
 	}
 
 	// Then, greedily generate compatible event sets that contain these pairs
@@ -669,8 +674,47 @@ std::vector<Fuse::Event_set> Fuse::Target::get_or_generate_reference_sets(){
 	unsigned int next_event_idx = 0;
 	while(next_event_idx < remaining_pairs.size()){
 
-		// Get the next event, and find out which other events it still needs to be paired with
+		// Next event to get its needed pairings
 		Fuse::Event event = this->target_events.at(next_event_idx);
+
+		// Check if this event is already done
+		if(remaining_pairs.at(next_event_idx).size() == 0){
+			next_event_idx++;
+			continue;
+		}
+
+		// Filter the remaining pairs to the pairs which haven't already been profiled
+
+		std::vector<Fuse::Event_set> previous_event_sets = this->reference_sets; // Copy
+		previous_event_sets.push_back(current_set); // Also includes what we currently have in the profile
+
+		Fuse::Event_set complement_events_to_remove;
+		for(auto complement_event : remaining_pairs.at(next_event_idx)){
+
+			Fuse::Event_set pair = {event, complement_event}; // These are ordered
+			for(auto previous_set : previous_event_sets){
+
+				Fuse::Event_set difference;
+				std::set_difference(pair.begin(), pair.end(), previous_set.begin(), previous_set.end(),
+					std::back_inserter(difference)
+				);
+
+				if(difference.size() == 0){
+					// We have already simultaneously profiled these events in a previous set!
+					complement_events_to_remove.push_back(complement_event);
+					break;
+				}
+			}
+		}
+
+		Fuse::Event_set filtered_target_events;
+		std::set_difference(remaining_pairs.at(next_event_idx).begin(), remaining_pairs.at(next_event_idx).end(),
+			complement_events_to_remove.begin(), complement_events_to_remove.end(),
+			std::back_inserter(filtered_target_events)
+		);
+		remaining_pairs.at(next_event_idx) = filtered_target_events;
+
+		// Check if this event is now done after filtering
 		if(remaining_pairs.at(next_event_idx).size() == 0){
 			next_event_idx++;
 			continue;
@@ -686,13 +730,13 @@ std::vector<Fuse::Event_set> Fuse::Target::get_or_generate_reference_sets(){
 		// Keep adding until the current set is incompatible or we move to a new next_event_idx
 		while(remaining_pairs.at(next_event_idx).size() > 0){
 
-			current_set.push_back(remaining_pairs.at(next_event_idx).back());
+			current_set.push_back(remaining_pairs.at(next_event_idx).front());
 			if(Fuse::Profiling::compatibility_check(current_set, this->papi_directory) == false){
 				current_set.pop_back();
 				this->reference_sets.push_back(current_set);
 				current_set = {event};
 			} else {
-				remaining_pairs.at(next_event_idx).pop_back();
+				remaining_pairs.at(next_event_idx).erase(remaining_pairs.at(next_event_idx).begin());
 			}
 
 		}
@@ -832,6 +876,9 @@ std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribut
 	std::map<Fuse::Symbol, std::vector<std::vector<int64_t > > > reference_distribution_per_symbol;
 
 	auto reference_set_idx = this->get_reference_set_index_for_events(events);
+
+	spdlog::trace("The events {} are apparently in set index {}.", Fuse::Util::vector_to_string(events), reference_set_idx);
+
 	auto reference_set_iter = this->loaded_reference_distributions.find(reference_set_idx);
 
 	// Load it if it is not loaded
@@ -906,7 +953,7 @@ void Fuse::Target::save_reference_calibration_tmd_to_disk(
 	if(Fuse::Util::check_file_existance(filename))
 		requires_header = false;
 
-	auto file_stream = std::ofstream(filename, std::ios_base::ate);
+	auto file_stream = std::ofstream(filename, std::ios_base::app);
 	if(file_stream.is_open() == false)
 		throw std::runtime_error(fmt::format("Unable to open {} to store calibration tmds.", filename));
 
@@ -990,11 +1037,11 @@ unsigned int Fuse::Target::get_reference_set_index_for_events(
 		){
 
 	std::sort(events.begin(), events.end());
-	auto reference_pairs = this->get_reference_pairs();
+	auto reference_sets = this->get_or_generate_reference_sets();
 
-	for(decltype(reference_pairs.size()) reference_idx=0; reference_idx<reference_pairs.size(); reference_idx++){
+	for(decltype(reference_sets.size()) reference_idx=0; reference_idx<reference_sets.size(); reference_idx++){
 
-		auto reference_set = reference_pairs.at(reference_idx);
+		auto reference_set = reference_sets.at(reference_idx);
 
 		// Check if all events are in this reference set (there are none left over from set difference)
 		Fuse::Event_set difference;
@@ -1018,6 +1065,8 @@ std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_r
 		){
 
 	std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > values_per_symbol;
+
+	unsigned int num_instances_loaded = 0;
 
 	auto ref_filename = this->get_reference_filename_for(reference_idx, repeat_idx);
 	spdlog::debug("Reading reference distribution for reference index {} and repeat {} from file {}.",
@@ -1043,8 +1092,8 @@ std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_r
 			file_stream.read(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
 
 			std::string event;
-			event.reserve(num_chars);
-			file_stream.read(&event[0],num_chars);
+			event.resize(num_chars);
+			file_stream.read(reinterpret_cast<char*>(&event[0]),num_chars);
 
 			events.push_back(event);
 		}
@@ -1058,8 +1107,8 @@ std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_r
 			file_stream.read(reinterpret_cast<char*>(&num_chars), sizeof(num_chars));
 
 			Fuse::Symbol symbol;
-			symbol.reserve(num_chars);
-			file_stream.read(&symbol[0],num_chars);
+			symbol.resize(num_chars);
+			file_stream.read(reinterpret_cast<char*>(&symbol[0]),num_chars);
 
 			std::vector<std::vector<int64_t> > values;
 
@@ -1069,10 +1118,18 @@ std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_r
 
 			for(unsigned int instance_idx=0; instance_idx<num_instances; instance_idx++){
 				std::vector<int64_t> instance_values;
-				instance_values.reserve(num_events);
+				instance_values.resize(num_events);
 				file_stream.read(reinterpret_cast<char*>(&instance_values[0]), num_events*sizeof(instance_values[0]));
 				values.push_back(instance_values);
 			}
+
+			spdlog::trace("Loaded a reference distribution for a symbol '{}' containing {} instances of {} events.",
+				symbol,
+				values.size(),
+				num_events
+			);
+
+			num_instances_loaded += values.size();
 
 			values_per_symbol.insert(std::make_pair(symbol, values));
 
@@ -1084,6 +1141,8 @@ std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_r
 		throw std::runtime_error(fmt::format("Failed loading reference distribution from file {}. Error was: {}.",
 			ref_filename, e.what()));
 	}
+
+	spdlog::debug("Loaded a reference distribution consisting of {} instances.", num_instances_loaded);
 
 	return values_per_symbol;
 
@@ -1101,6 +1160,9 @@ void Fuse::Target::compress_references_tracefiles(
 		unsigned int repeat_idx
 		){
 
+	char buffer[256];
+	std::string result = "";
+
 	// Check pbzip2 exists
 	std::string check_cmd = "which pbzip2";
 	auto pipe = popen(check_cmd.c_str(), "r");
@@ -1108,7 +1170,16 @@ void Fuse::Target::compress_references_tracefiles(
 		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as cannot open pipe for '{}'.",
 			repeat_idx, check_cmd);
 		return;
-	} else if(pclose(pipe) != EXIT_SUCCESS){
+	}
+
+	while(!feof(pipe)){
+		if(fgets(buffer, 256, pipe) != nullptr)
+			result += buffer;
+	}
+
+	auto pbzip2_ret = pclose(pipe);
+
+	if(pbzip2_ret != EXIT_SUCCESS){
 		spdlog::warn("Unable to compress reference tracefiles for repeat index {}, as pbzip2 cannot be found.",
 			repeat_idx);
 		return;
@@ -1131,8 +1202,7 @@ void Fuse::Target::compress_references_tracefiles(
 	compress_cmd += " -C " + this->get_tracefiles_directory() + "/ ";
 	compress_cmd += tracefiles_str;
 
-	char buffer[256];
-	std::string result = "";
+	result = "";
 
 	pipe = popen(compress_cmd.c_str(), "r");
 	if(pipe == nullptr){

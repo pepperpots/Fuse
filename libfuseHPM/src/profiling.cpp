@@ -91,7 +91,7 @@ bool Fuse::Profiling::Openstream::execute(
 	ss << " " << binary << " " << args;
 	std::string cmd = ss.str();
 
-	spdlog::trace("Executing OpenStream program using: '{}'.", cmd);
+	spdlog::debug("Executing OpenStream program using: '{}'.", cmd);
 
 	char buffer[256];
 	std::string result = "";
@@ -164,8 +164,18 @@ bool Fuse::Profiling::compatibility_check(Fuse::Event_set events, std::string pa
 
 		if(ret == EXIT_SUCCESS)
 			return true;
-		else
+		else {
+
+			if(events.size() <= 2)
+				throw std::invalid_argument(
+					fmt::format("The {} events {} are incompatible. Fuse assumes that all pairs of events can be simultaneously monitored. Aborting.",
+						events.size(),
+						Fuse::Util::vector_to_string(events)
+					)
+				);
+
 			return false;
+		}
 
 	}
 

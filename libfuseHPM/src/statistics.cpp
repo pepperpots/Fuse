@@ -19,11 +19,15 @@ Fuse::Statistics::Statistics(std::string statistics_filename):
 
 }
 
-std::vector<Fuse::Symbol> Fuse::Statistics::get_unique_symbols(){
+std::vector<Fuse::Symbol> Fuse::Statistics::get_unique_symbols(bool include_runtime){
 
 	std::vector<Fuse::Symbol> symbols;
 	symbols.reserve(this->stats_by_symbol.size()-1);
 	for(auto symbol_iter : this->stats_by_symbol){
+
+		if(include_runtime == false && symbol_iter.first == "runtime")
+			continue;
+
 		if(symbol_iter.first != "all_symbols")
 			symbols.push_back(symbol_iter.first);
 	}
@@ -38,7 +42,7 @@ void Fuse::Statistics::load(){
 	std::ifstream in(this->statistics_filename);
 
 	if(in.is_open() == false){
-		spdlog::trace("There were no event statistics to load.");
+		spdlog::debug("There were no event statistics to load.");
 		return;
 	}
 

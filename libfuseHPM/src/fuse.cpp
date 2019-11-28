@@ -171,7 +171,7 @@ void Fuse::execute_references(
 
 			Fuse::add_profile_event_values_to_statistics(execution_profile, target.get_statistics());
 
-			auto reference_values_per_symbol = execution_profile->get_value_distribution(reference_set);
+			auto reference_values_per_symbol = execution_profile->get_value_distribution(reference_set, false);
 
 			target.save_reference_values_to_disk(ref_idx, instance_idx, reference_set, reference_values_per_symbol);
 
@@ -381,6 +381,9 @@ void Fuse::calculate_calibration_tmds(
 		target.load_reference_distributions();
 
 	auto reference_pairs = target.get_reference_pairs();
+	for(auto pair : reference_pairs){
+		spdlog::trace("Reference pair is: {}", Fuse::Util::vector_to_string(pair));
+	}
 
 	std::vector<unsigned int> reference_repeats_list(target.get_num_reference_repeats());
 	std::iota(reference_repeats_list.begin(), reference_repeats_list.end(), 0);
@@ -394,7 +397,7 @@ void Fuse::calculate_calibration_tmds(
 	// We always get calibration TMDs for all symbols, and optionally for each individual symbol
 	std::vector<Fuse::Symbol> symbols = {"all_symbols"};
 	if(Fuse::Config::calculate_per_workfunction_tmds){
-		auto all_symbols = target.get_statistics()->get_unique_symbols();
+		auto all_symbols = target.get_statistics()->get_unique_symbols(false);
 		symbols.insert(symbols.end(), all_symbols.begin(), all_symbols.end());
 	}
 
@@ -422,7 +425,7 @@ void Fuse::calculate_calibration_tmds(
 				for(auto event : reference_pair)
 					bounds_per_event.push_back(target.get_statistics()->get_bounds(event, symbol));
 
-				auto tmd = Fuse::Analysis::calculate_uncalibrated_tmd(distribution_one, distribution_two, bounds_per_event); // ... needs bounds
+				auto tmd = Fuse::Analysis::calculate_uncalibrated_tmd(distribution_one, distribution_two, bounds_per_event, Config::tmd_bin_count);
 
 				auto symbol_iter = reference_tmd_per_combination_per_symbol.find(symbol);
 				if(symbol_iter == reference_tmd_per_combination_per_symbol.end()){
@@ -481,6 +484,8 @@ void Fuse::calculate_calibration_tmds(
 		pair_idx++;
 	}
 
+	spdlog::info("Finished calculating calibration TMDs.");
+
 }
 
 void Fuse::add_profile_event_values_to_statistics(
@@ -488,7 +493,7 @@ void Fuse::add_profile_event_values_to_statistics(
 		Fuse::Statistics_p statistics
 		){
 
-	auto instances = profile->get_instances();
+	auto instances = profile->get_instances(true);
 	auto events = profile->get_unique_events();
 
 	spdlog::debug("Adding event values to statistics for {} instances and {} events.", instances.size(), events.size());

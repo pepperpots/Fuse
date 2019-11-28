@@ -72,7 +72,7 @@ std::string Fuse::Util::check_or_create_directory_from_filename(std::string file
 
 }
 
-std::string Fuse::Util::get_directory_from_filename(const std::string& filename){
+std::string Fuse::Util::get_directory_from_filename(const std::string filename){
 
 	auto found_index = filename.find_last_of("/\\");
 	auto directory = filename.substr(0,found_index);
@@ -81,12 +81,13 @@ std::string Fuse::Util::get_directory_from_filename(const std::string& filename)
 
 }
 
-std::string Fuse::Util::get_filename_from_full_path(const std::string& fully_qualified){
+std::string Fuse::Util::get_filename_from_full_path(std::string fully_qualified){
 
 	auto found_index = fully_qualified.find_last_of("/\\");
-	auto filename = fully_qualified.substr(found_index,fully_qualified.size());
+	if(found_index == std::string::npos)
+		return fully_qualified;
 
-	return filename;
+	return fully_qualified.substr(found_index+1,fully_qualified.size());
 
 }
 

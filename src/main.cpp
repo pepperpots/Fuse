@@ -24,7 +24,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 		("m,combine_sequence", "Combine the sequence repeats. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'filter_events'.")
 		("t,execute_hem", "Execute the HEM execution profile. Argument is number of repeat executions. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
 		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'accuracy_metric', 'filter_events'.")
-		("r,execute_references", "Execute the reference execution profiles. Conditioned by 'filter_events'.")
+		("r,execute_references", "Execute the reference execution profiles. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
 		("c,run_calibration", "Run EPD calibration on the reference profiles. Conditioned by 'filter_events'.");
 
 	options.add_options("Utility")
@@ -34,7 +34,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 
 	options.add_options("Parameter")
 		("strategies", "Comma-separated list of strategies from {'random','ctc','lgl','bc','hem'}.",cxxopts::value<std::string>())
-		("repeat_indexes", "Comma-separated list of sequence repeat indexes to operate on, or 'all'. Defaults t all repeat indexes.",cxxopts::value<std::string>()->default_value("all"))
+		("repeat_indexes", "Comma-separated list of sequence repeat indexes to operate on, or 'all'. Defaults to all repeat indexes.",cxxopts::value<std::string>()->default_value("all"))
 		("minimal", "Use minimal execution profiles (default is non-minimal). Strategies 'bc' and 'hem' cannot use minimal.", cxxopts::value<bool>()->default_value("false"))
 		("filter_events", "Main options only load and dump data for the events defined in the target JSON (i.e. exclude non HPM events). Default is false.", cxxopts::value<bool>()->default_value("false"))
 		("tracefile", "Argument is the tracefile to load for utility options.", cxxopts::value<std::string>())
@@ -331,8 +331,11 @@ int main(int argc, char** argv){
 
 		run_options(options, options_parse_result, main_options, utility_options);
 
+	} catch (const cxxopts::OptionException& e){
+		spdlog::error("Options parsing exception: {}", e.what());
+		return 1;
 	} catch (const std::exception& e){
-		spdlog::error("Exception: {}", e.what());
+		spdlog::error("General exception: {}", e.what());
 		return 1;
 	}
 

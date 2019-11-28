@@ -47,15 +47,17 @@ namespace Fuse {
 			void dump_instance_dependencies(std::string output_file);
 			void dump_instance_dependencies_dot(std::string output_file);
 
-			std::vector<Fuse::Symbol> get_unique_symbols();
+			std::vector<Fuse::Symbol> get_unique_symbols(bool include_runtime);
 			Fuse::Event_set get_unique_events();
 
 			std::vector<Fuse::Instance_p> get_instances(
+				bool include_runtime,
 				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
 			);
 
 			std::map<std::string, std::vector<std::vector<int64_t> > > get_value_distribution(
 				Fuse::Event_set events,
+				bool include_runtime,
 				const std::vector<Fuse::Symbol> symbols = std::vector<Fuse::Symbol>()
 			);
 

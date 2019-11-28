@@ -7,108 +7,218 @@
  */
 #include <cstddef>
 #define NDEBUG
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare" // Lots in this third party code
 #include "fast_emd/emd_hat.hpp"
 #include "fast_emd/emd_hat_signatures_interface.hpp"
+#pragma GCC diagnostic pop
 #undef NDEBUG
+#include "spdlog/spdlog.h"
+
+#include <map>
+#include <cmath>
+#include <vector>
+
+double distance_calculation(feature_tt* one, feature_tt* two){
+
+	double square_distance = 0.0;
+
+	for(decltype(one->coords.size()) i=0; i < one->coords.size(); i++)
+		square_distance += std::pow(std::fabs(two->coords.at(i) - one->coords.at(i)),2);
+
+	return std::sqrt(square_distance);
+}
+
+struct Bin {
+	unsigned int num_instances;
+	std::vector<int64_t> per_dimension_summed_values; // For mean calculation after one pass
+	double coord_of_mean;
+};
+
+std::map<std::vector<double>, Bin> allocate_instances_to_bins(
+		std::vector<std::vector<int64_t> > distribution,
+		std::vector<std::pair<int64_t,int64_t> > bounds_per_dimension,
+		unsigned int num_bins_per_dimension,
+		std::vector<double> bin_size_per_dimension
+		){
+
+	std::map<std::vector<double>, Bin> populated_bins;
+
+	// Allocate instances to bins:
+	for(auto instance_values : distribution){
+
+		// The coords identify which bin
+		std::vector<double> coords;
+		coords.reserve(bounds_per_dimension.size());
+
+		for(decltype(bounds_per_dimension.size()) dim_idx=0; dim_idx<bounds_per_dimension.size(); dim_idx++){
+
+			// If bin size is zero, then the values are constant, so allocate all to same bin in this dimension
+			if(bin_size_per_dimension.at(dim_idx) == 0.0){
+				coords.push_back(0.0);
+				continue;
+			}
+
+			// Find which integer bin this instance should be allocated to
+			int coord = static_cast<int>((instance_values.at(dim_idx) - bounds_per_dimension.at(dim_idx).first) / bin_size_per_dimension.at(dim_idx));
+
+			// If the instance value is maximum, then coord will be equal to (num_bins_per_dimension)
+			// As the bins are zero indexed, this will give more than we want, so reduce by 1 if maximum
+			if(instance_values.at(dim_idx) == bounds_per_dimension.at(dim_idx).second)
+				coord--;
+
+			// Now, determine if the instance is allocated to an external bin (indexed by -1 and num_bins_per_dimension)
+			if(coord < 0)
+				coord = -1;
+			else if(coord > static_cast<double>(num_bins_per_dimension))
+				coord = num_bins_per_dimension;
+
+			coords.push_back(static_cast<double>(coord));
+
+		}
+
+		// Add the instance to the identified bin
+		auto bin_iter = populated_bins.find(coords);
+		if(bin_iter == populated_bins.end()){
+
+			Bin bin;
+			bin.num_instances = 0;
+			bin.per_dimension_summed_values.reserve(bounds_per_dimension.size());
+			for(decltype(bounds_per_dimension.size()) dim_idx=0; dim_idx<bounds_per_dimension.size(); dim_idx++)
+				bin.per_dimension_summed_values.push_back(instance_values.at(dim_idx));
+
+			populated_bins.insert(std::make_pair(coords, bin));
+
+		} else {
+
+			bin_iter->second.num_instances++;
+			for(decltype(bounds_per_dimension.size()) dim_idx=0; dim_idx<bounds_per_dimension.size(); dim_idx++)
+				bin_iter->second.per_dimension_summed_values.at(dim_idx) += instance_values.at(dim_idx);
+
+		}
+
+	} // Finished allocating instances
+
+	return populated_bins;
+
+}
+
+signature_tt<double> convert_distribution_to_bounded_signature(
+		std::vector<std::vector<int64_t> > distribution,
+		std::vector<std::pair<int64_t,int64_t> > bounds_per_dimension,
+		unsigned int num_bins_per_dimension
+		){
+
+	// Instances are binned within the provided bounds
+	// Any outside the reference ranges are placed into one of two external bins (below min bin, above max bin)
+
+	// The coordinate of any bin (including external) corresponds to the mean event values of its instances
+	// Weights are the bin's instance-count normalised to the total instances in the distribution
+
+	std::vector<double> bin_size_per_dimension;
+	bin_size_per_dimension.reserve(bounds_per_dimension.size());
+	for(auto bound : bounds_per_dimension)
+		bin_size_per_dimension.push_back((static_cast<double>(bound.second) - static_cast<double>(bound.first)) / num_bins_per_dimension);
+
+	unsigned int total_num_instances = distribution.size();
+
+	std::map<std::vector<double>, Bin> populated_bins = allocate_instances_to_bins(
+		distribution,
+		bounds_per_dimension,
+		num_bins_per_dimension,
+		bin_size_per_dimension
+	);
+
+	if(populated_bins.size() == 0)
+		throw std::runtime_error(
+			fmt::format("Cannot analyse a distribution with 0 populated bins. {}.",
+				fmt::format("The distribution contained {} instances, with {} dimensions divided into {} bins per dimension.",
+					distribution.size(),
+					bounds_per_dimension.size(),
+					num_bins_per_dimension
+				)
+			)
+		);
+
+	// The signature contains an array of Features (i.e. coordinates) and an array of Weights
+	// Each coord and each weight is associated by position in the array
+	signature_tt<double> signature;
+	signature.n = populated_bins.size();
+	signature.Features = new feature_tt[signature.n];
+	signature.Weights = new double[signature.n];
+
+	// Convert each bin into the signature format for fast_emd
+	unsigned int bin_idx = 0;
+	for(auto bin_iter : populated_bins){
+
+		std::vector<double> coords = bin_iter.first;
+		double weight = static_cast<double>(bin_iter.second.num_instances) / total_num_instances;
+
+		// Convert each integer coordinate into a float coordinate, corresponding to the mean of the bin's values
+		for(decltype(bounds_per_dimension.size()) dim_idx=0; dim_idx<bounds_per_dimension.size(); dim_idx++){
+
+			// Continue if dimension is constant (meaning all same bin, and the coords don't need to be changed)
+			if(bin_size_per_dimension.at(dim_idx) == 0.0)
+				continue;
+
+			double mean_value = static_cast<double>(bin_iter.second.per_dimension_summed_values.at(dim_idx)) / bin_iter.second.num_instances;
+
+			// If the value is external bottom, then calculate bin distance below 0.0
+			// Otherwise, calculate the fractional bin distance above 0.0
+
+			if(coords.at(dim_idx) < 0.0){
+
+				// How much lower that (min) is mean_value, in floating units of bin_size
+				double value_displacement = mean_value - bounds_per_dimension.at(dim_idx).first; // negative under (min)
+				double bin_displacement = value_displacement / bin_size_per_dimension.at(dim_idx); // convert to units of bin_size
+				coords.at(dim_idx) = 0.0 + bin_displacement; // 0.0 is defined as coord of (min)
+
+			} else {
+
+				double fractional_bin_coord = (mean_value - bounds_per_dimension.at(dim_idx).first) / bin_size_per_dimension.at(dim_idx);
+				coords.at(dim_idx) = fractional_bin_coord;
+
+			}
+
+		}
+
+		signature.Features[bin_idx].coords = coords;
+		signature.Weights[bin_idx] = weight;
+
+		bin_idx++;
+
+	}
+
+	return signature;
+}
 
 double Fuse::Analysis::calculate_uncalibrated_tmd(
 		std::vector<std::vector<int64_t> > distribution_one,
 		std::vector<std::vector<int64_t> > distribution_two,
-		std::vector<std::pair<int64_t, int64_t> > bounds_per_event
+		std::vector<std::pair<int64_t, int64_t> > bounds_per_dimension,
+		unsigned int num_bins_per_dimension
 		){
 
-	return 0.0;
+	signature_tt<double> signature_one = convert_distribution_to_bounded_signature(
+		distribution_one,
+		bounds_per_dimension,
+		num_bins_per_dimension
+	);
+
+	signature_tt<double> signature_two = convert_distribution_to_bounded_signature(
+		distribution_two,
+		bounds_per_dimension,
+		num_bins_per_dimension
+	);
+
+	double extra_mass_penalty = 0.0;
+	double result = emd_hat_signature_interface<double>(&signature_one, &signature_two, distance_calculation, extra_mass_penalty);
+
+	delete[](signature_one.Features);
+	delete[](signature_one.Weights);
+	delete[](signature_two.Features);
+	delete[](signature_two.Weights);
+
+	return result;
 
 }
-
-// OLD
-/*
-double Analysis::calculate_tmd(std::vector<Event> events,
-	 // these are now the min and max of the events for each symbol, which will be divided into bins for the histogram
-	std::map<std::string,std::vector<std::pair<int64_t,int64_t> > > normalisation_ranges_by_tt,
-	std::map<std::string,std::vector<std::vector<int64_t> > > reference_distribution_by_tt,
-	std::map<std::string,std::vector<std::vector<int64_t> > > target_distribution_by_tt,
-	std::map<std::string,unsigned int> reference_task_count_by_task_tt,
-	Event_statistics& local_statistics,
-	double calibration_tmd){
-
-	LOG(DEBUG) << "Calculating EMD for " << events.size() << " events: " << Helpers::vector_to_string(events);
-
-	std::map<std::string,double> tmds_by_symbol;
-	std::map<std::string,uint64_t> num_tasks_by_symbol;
-
-	LOG(DEBUG) << "There are " << reference_distribution_by_tt.size() << " reference symbols, and " << target_distribution_by_tt.size() << " target symbols";
-
-	std::map<std::string,std::vector<std::vector<int64_t> > >::iterator symbol_iter;
-	for(symbol_iter = target_distribution_by_tt.begin(); symbol_iter != target_distribution_by_tt.end(); symbol_iter++){
-
-		std::string symbol = symbol_iter->first;
-		std::vector<std::vector<int64_t> > reference_distribution = reference_distribution_by_tt[symbol];
-		std::vector<std::vector<int64_t> > target_distribution = target_distribution_by_tt[symbol];
-		std::vector<std::pair<int64_t,int64_t> > normalisation_ranges = normalisation_ranges_by_tt[symbol];
-		unsigned int num_reference_tasks_in_single_execution = reference_task_count_by_task_tt[symbol];
-
-		LOG(DEBUG) << "For symbol " << symbol_iter->first << " there are " << num_reference_tasks_in_single_execution << " reference tasks in single distribution.";
-
-		std::vector<double> reference_bin_ranges;
-		std::vector<double> target_bin_ranges;
-
-		signature_tt<double> reference_signature = convert_distribution_to_bounded_signature(reference_distribution,normalisation_ranges, reference_bin_ranges, reference_distribution.size());
-		signature_tt<double> target_signature = convert_distribution_to_bounded_signature(target_distribution,normalisation_ranges, target_bin_ranges, num_reference_tasks_in_single_execution);
-
-		LOG(DEBUG) << "Working on target distribution symbol " << symbol << " that has " << reference_distribution.size() << " tasks in the reference and " << target_distribution.size() << " tasks in the target";
-		LOG(DEBUG) << "The number of populated reference bins is " << reference_signature.n << ", target bins is " << target_signature.n;
-
-		if((reference_signature.n <= 0) || (target_signature.n <= 0)){
-			LOG(INFO) << "At least one of the signatures has 0 or less populated bins, so ignoring the this task type (" << symbol << ").";
-			continue;
-		}
-
-		double extra_mass_penalty = 0.0;
-
-		double emd_result = emd_hat_signature_interface<double>(&reference_signature, &target_signature, distance_calculation, extra_mass_penalty);
-		LOG(DEBUG) << "Uncalibrated TMD result for " << symbol << " was " << emd_result;
-
-		double tmd_result = emd_result / calibration_tmd;
-
-		if(!std::isnan(tmd_result)){
-
-			tmds_by_symbol[symbol] = tmd_result;
-			num_tasks_by_symbol.insert(std::make_pair(symbol, target_distribution.size()));
-			LOG(DEBUG) << "Calibrated TMD result for " << symbol << " was " << tmd_result;
-
-		}
-
-		delete[](reference_signature.Features);
-		delete[](reference_signature.Weights);
-		delete[](target_signature.Features);
-		delete[](target_signature.Weights);
-
-	}
-
-	if(tmds_by_symbol.size() == 0)
-		return -1.0;
-
-	std::vector<double> tmds;
-	std::vector<double> weights;
-
-	for(std::map<std::string,double>::iterator iter = tmds_by_symbol.begin(); iter != tmds_by_symbol.end(); iter++){
-
-		tmds.push_back(iter->second);
-		weights.push_back((double)num_tasks_by_symbol[iter->first]);
-
-	}
-
-	if(tmds.size() == 1){
-		return tmds.at(0);
-	}
-
-	// all weights are the same currently
-	double weighted_geometric_mean_tmd = Helpers::weighted_geometric_mean(tmds,weights);
-
-	return weighted_geometric_mean_tmd;
-
-}
-*/
-
-

@@ -66,7 +66,7 @@ namespace Fuse {
 				Fuse::Symbol symbol = Fuse::Symbol("all_symbols")
 			);
 
-			std::vector<Fuse::Symbol> get_unique_symbols();
+			std::vector<Fuse::Symbol> get_unique_symbols(bool include_runtime);
 
 			void load();
 			void save();

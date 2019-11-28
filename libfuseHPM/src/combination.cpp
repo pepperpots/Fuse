@@ -74,6 +74,16 @@ Fuse::Profile_p Fuse::Combination::combine_profiles_via_strategy(
 			unique_events.insert(event);
 	}
 
+	// Also incoporate the runtime instances from the first profile
+	std::vector<Fuse::Symbol> runtime_symbol = {"runtime"};
+	auto runtime_instances = sequence_profiles.at(0)->get_instances(true,runtime_symbol);
+
+	for(auto instance : runtime_instances){
+		combined_execution_profile->add_instance(instance);
+		for(auto event : instance->get_events())
+			unique_events.insert(event);
+	}
+
 	for(auto event : unique_events)
 		combined_execution_profile->add_event(event);
 
@@ -92,7 +102,7 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_fro
 	std::vector<Fuse::Symbol> symbols;
 	if(per_symbol){
 		for(auto profile : sequence_profiles)
-			for(auto symbol : profile->get_unique_symbols())
+			for(auto symbol : profile->get_unique_symbols(false))
 				if(std::find(symbols.begin(), symbols.end(), symbol) == symbols.end())
 					symbols.push_back(symbol);
 	} else {
@@ -107,7 +117,7 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_fro
 
 		std::vector<std::vector<Fuse::Instance_p> > instances_per_profile;
 		for(auto profile : sequence_profiles)
-			instances_per_profile.push_back(profile->get_instances(restricted_symbols_list));
+			instances_per_profile.push_back(profile->get_instances(false, restricted_symbols_list));
 
 		auto combined_instances = Fuse::Combination::combine_instances_via_strategy(instances_per_profile, strategy);
 
@@ -335,12 +345,12 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_bc(
 	std::vector<Fuse::Instance_p> resulting_instances;
 
 	auto initial_profile = sequence_profiles.at(0);
-	auto symbols = initial_profile->get_unique_symbols();
+	auto symbols = initial_profile->get_unique_symbols(false);
 	std::map<Fuse::Symbol, std::vector<Fuse::Instance_p> > previous_instances_per_symbol;
 
 	for(auto symbol : symbols){
 		std::vector<Fuse::Symbol> symbol_list = {symbol};
-		auto instances_for_symbol = initial_profile->get_instances(symbol_list);
+		auto instances_for_symbol = initial_profile->get_instances(false, symbol_list);
 		previous_instances_per_symbol.insert(std::make_pair(symbol, instances_for_symbol));
 	}
 
@@ -368,14 +378,14 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_bc(
 
 			// Add the instances from the next profile
 			std::vector<Fuse::Symbol> symbol_list = {symbol};
-			auto next_profile_instances = next_profile->get_instances(symbol_list);
+			auto next_profile_instances = next_profile->get_instances(false, symbol_list);
 			instances_per_profile.push_back(next_profile_instances);
 
 			if(instances_per_profile.at(0).size() != instances_per_profile.at(1).size())
 				spdlog::debug("There are unequal number of instances ({} and {}) from the two profiles under BC combination.",
 					instances_per_profile.at(0).size(), instances_per_profile.at(1).size());
 			else
-				spdlog::trace("Clustering {} instances from each profile via BC, for symbol {}.",
+				spdlog::debug("Clustering {} instances from each profile via BC, for symbol {}.",
 					instances_per_profile.at(0).size(), symbol);
 
 			auto combined_instances = Fuse::Combination::combine_instances_via_strategy(
@@ -923,7 +933,7 @@ unsigned int Fuse::Combination::relax_similarity_constraint(
 	if(next_granularity < 1 || minimum_bin_distance == 0.0)
 		next_granularity = 1;
 
-	spdlog::trace("Minimum bin distance is {} after granularity {}, relaxing granularity to {}.", minimum_bin_distance, current_granularity, next_granularity);
+	spdlog::debug("Minimum bin distance is {} after granularity {}, relaxing granularity to {}.", minimum_bin_distance, current_granularity, next_granularity);
 
 	return next_granularity;
 
