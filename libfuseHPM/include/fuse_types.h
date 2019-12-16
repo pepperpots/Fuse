@@ -31,6 +31,12 @@ namespace Fuse {
 		HEM
 	};
 
+	enum Accuracy_metric {
+		EPD,
+		EPD_TT,
+		SPEARMANS
+	};
+
 	typedef std::string Event;
 	typedef std::vector<Event> Event_set;
 	struct Sequence_part {
@@ -50,6 +56,11 @@ namespace Fuse {
 	Strategy convert_string_to_strategy(std::string strategy_string, bool minimal);
 	Strategy convert_string_to_strategy(std::string strategy_string);
 	std::string convert_strategy_to_string(Strategy strategy);
+
+	Accuracy_metric convert_string_to_metric(std::string metric_string);
+	std::string convert_metric_to_string(Accuracy_metric metric);
+
+	std::vector<int> convert_label_str_to_label(std::string label_str);
 
 }
 

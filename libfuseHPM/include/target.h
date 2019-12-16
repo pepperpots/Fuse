@@ -24,10 +24,16 @@ namespace Fuse {
 			std::string combinations_directory;
 			std::string papi_directory;
 			std::string logs_directory;
+			std::string results_directory;
 			std::string statistics_filename;
 
 			std::vector<Fuse::Event_set> reference_sets;
 			unsigned int num_reference_repeats;
+
+			// Per symbol (includes a dummy symbol 'all_symbols'), mapping to each pair index, mapped to {TMD,weight}
+			// The weight is used for (potential) calculation of the TMDs contribution (weighting) towards an aggregate EPD
+			std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > > calibration_tmds;
+			bool calibrations_loaded;
 
 			// Map from reference set index to (map of repeat index to (map of symbol to list of value-vector for each instance))
 			std::map<unsigned int,
@@ -91,6 +97,11 @@ namespace Fuse {
 				Fuse::Profile_p execution_profile
 			);
 
+			Fuse::Profile_p get_or_load_combined_profile(
+				Fuse::Strategy strategy,
+				unsigned int repeat_idx
+			);
+
 			bool combined_profile_exists(Fuse::Strategy strategy, unsigned int repeat_idx);
 			unsigned int get_num_combined_profiles(Fuse::Strategy strategy);
 
@@ -98,7 +109,7 @@ namespace Fuse {
 			void increment_num_reference_repeats();
 			std::vector<Fuse::Event_set> get_or_generate_reference_sets();
 			std::vector<Fuse::Event_set> get_reference_pairs();
-
+			unsigned int get_reference_pair_index_for_event_pair(Fuse::Event_set pair);
 			unsigned int get_reference_set_index_for_events(
 				Fuse::Event_set events
 			);
@@ -127,8 +138,17 @@ namespace Fuse {
 				double mean_num_instances
 			);
 
-			std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
-				get_reference_calibration(
+			void save_accuracy_results_to_disk(
+				Fuse::Accuracy_metric metric,
+				Fuse::Strategy strategy,
+				unsigned int repeat_idx,
+				double epd,
+				const std::map<unsigned int, double> tmd_per_reference_pair
+			);
+
+			std::pair<double, double> get_or_load_calibration_tmd(
+				Fuse::Event_set events,
+				Fuse::Symbol symbol
 			);
 
 			void load_reference_distributions(
@@ -159,15 +179,28 @@ namespace Fuse {
 			std::string get_logs_directory();
 			std::string get_tracefiles_directory();
 			std::string get_references_directory();
+			std::string get_results_directory();
+			std::string get_results_filename(Fuse::Accuracy_metric metric);
 			std::string get_combination_filename(Fuse::Strategy strategy, unsigned int repeat_idx);
 			std::string get_calibration_tmds_filename();
 			void save();
 
 		private:
-			std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > load_reference_distribution(
+
+			std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
+				load_reference_calibrations_per_symbol(
+			);
+
+			std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > load_reference_distribution_from_disk(
 				unsigned int reference_idx,
 				unsigned int repeat_idx
 			);
+
+			Fuse::Profile_p load_combined_profile_from_disk(
+				Fuse::Strategy strategy,
+				unsigned int repeat_idx
+			);
+
 			void parse_json_mandatory(nlohmann::json& j);
 			void parse_json_optional(nlohmann::json& j);
 			void generate_json_mandatory(nlohmann::json& j);

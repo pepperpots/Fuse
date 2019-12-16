@@ -1,6 +1,7 @@
 #include "target.h"
 #include "config.h"
 #include "fuse.h"
+#include "instance.h"
 #include "profiling.h"
 #include "statistics.h"
 #include "util.h"
@@ -35,6 +36,7 @@ void Fuse::Target::parse_json_mandatory(nlohmann::json& j){
 	this->tracefiles_directory = j["tracefiles_directory"];
 	this->combinations_directory = j["combinations_directory"];
 	this->papi_directory = j["papi_directory"];
+	this->results_directory = j["results_directory"];
 
 	/* Hard-coded directories */
 
@@ -183,6 +185,7 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 
 Fuse::Target::Target(std::string target_dir):
 			target_directory(target_dir),
+			calibrations_loaded(false),
 			modified(false)
 		{
 
@@ -241,6 +244,7 @@ void Fuse::Target::generate_json_mandatory(nlohmann::json& j){
 	j["references_directory"] = this->references_directory;
 	j["tracefiles_directory"] = this->tracefiles_directory;
 	j["combinations_directory"] = this->combinations_directory;
+	j["results_directory"] = this->results_directory;
 	j["papi_directory"] = this->papi_directory;
 
 	j["target_events"] = this->target_events;
@@ -352,10 +356,11 @@ void Fuse::Target::save(){
 
 void Fuse::Target::check_or_create_directories(){
 
-	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->references_directory);
-	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->tracefiles_directory);
+	Fuse::Util::check_or_create_directory(this->get_results_directory());
+	Fuse::Util::check_or_create_directory(this->get_references_directory());
+	Fuse::Util::check_or_create_directory(this->get_tracefiles_directory());
 	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->combinations_directory);
-	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->logs_directory);
+	Fuse::Util::check_or_create_directory(this->get_logs_directory());
 
 	bool exists = Fuse::Util::check_file_existance(this->binary_directory + "/" + this->binary);
 	if(exists == false)
@@ -381,6 +386,10 @@ std::string Fuse::Target::get_tracefiles_directory(){
 
 std::string Fuse::Target::get_references_directory(){
 	return (this->target_directory + "/" + this->references_directory);
+}
+
+std::string Fuse::Target::get_results_directory(){
+	return (this->target_directory + "/" + this->results_directory);
 }
 
 std::string Fuse::Target::get_combination_filename(
@@ -463,6 +472,18 @@ std::string Fuse::Target::get_calibration_tmds_filename(){
 	return ss.str();
 }
 
+std::string Fuse::Target::get_results_filename(
+		Fuse::Accuracy_metric metric
+		){
+
+	auto results_directory = this->get_results_directory();
+
+	std::stringstream ss;
+	ss << results_directory << "/" << Fuse::convert_metric_to_string(metric) << "_accuracy_results.txt";
+
+	return ss.str();
+}
+
 Fuse::Statistics_p Fuse::Target::get_statistics(){
 	if(this->statistics == nullptr)
 		throw std::runtime_error("Tried to get event statistics, but they have not yet been initialized.");
@@ -520,9 +541,45 @@ std::vector<Fuse::Profile_p> Fuse::Target::load_and_retrieve_sequence_profiles(
 	auto minimal_str = minimal ? "minimal" : "non_minimal";
 
 	auto sequence = this->get_sequence(minimal);
-	if(sequence.size() < 1)
-		throw std::runtime_error(
-			fmt::format("No {} sequence has been defined in the target JSON, so cannot combine the sequence profiles.", minimal_str));
+	if(sequence.size() < 1){
+
+		if(minimal){
+			spdlog::info("The minimal event partitioning was not defined in the target JSON. {}",
+				"Greedily generating a minimal sequence..."
+			);
+
+			auto sets = Fuse::Profiling::greedy_generate_minimal_partitioning(
+				this->target_events,
+				this->papi_directory
+			);
+
+			spdlog::info("Generated a minimal partitioning comprising {} profiles.", sets.size());
+
+			for(auto set : sets){
+
+				struct Fuse::Sequence_part part;
+
+				Fuse::Event_set overlapping;
+				Fuse::Event_set unique = set;
+				unique = Fuse::Util::vector_to_lowercase(unique);
+
+				part.part_idx = this->minimal_sequence.size();
+				part.overlapping = overlapping;
+				part.unique = unique;
+
+				this->minimal_sequence.push_back(part);
+
+			}
+
+			sequence = this->minimal_sequence;
+			this->modified = true;
+			this->save();
+
+		} else {
+			throw std::runtime_error("No BC sequence has been defined in the target JSON.");
+		}
+
+	}
 
 	spdlog::info("Loading the {} sequence profiles for repeat index {}.", minimal_str, repeat_idx);
 
@@ -840,12 +897,12 @@ void Fuse::Target::load_reference_distributions(
 
 		for(auto ref_set_idx : reference_set_indexes_to_load){
 
-			auto reference_distribution = this->load_reference_distribution(ref_set_idx, repeat);
-
-			// Add the reference distribution to the map
 			auto reference_set_iter = this->loaded_reference_distributions.find(ref_set_idx);
 			if(reference_set_iter == this->loaded_reference_distributions.end()){
 
+				auto reference_distribution = this->load_reference_distribution_from_disk(ref_set_idx, repeat);
+
+				// Add the reference distribution to the map
 				std::map<unsigned int, std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > > repeats_for_set;
 				repeats_for_set.insert(std::make_pair(repeat, reference_distribution));
 				this->loaded_reference_distributions.insert(std::make_pair(ref_set_idx, repeats_for_set));
@@ -853,11 +910,12 @@ void Fuse::Target::load_reference_distributions(
 			} else {
 
 				auto repeat_iter = reference_set_iter->second.find(repeat);
-				if(repeat_iter != reference_set_iter->second.end())
-					spdlog::warn("Loaded a reference distribution that was already loaded (reference {} and repeat {}).",
-						ref_set_idx, repeat);
+				if(repeat_iter == reference_set_iter->second.end()){
 
-				reference_set_iter->second[repeat] = reference_distribution; // Replaces if exists
+					auto reference_distribution = this->load_reference_distribution_from_disk(ref_set_idx, repeat);
+					reference_set_iter->second[repeat] = reference_distribution; // Replaces if exists
+
+				} // else it already is loaded, so do nothing
 
 			}
 
@@ -877,15 +935,13 @@ std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribut
 
 	auto reference_set_idx = this->get_reference_set_index_for_events(events);
 
-	spdlog::trace("The events {} are apparently in set index {}.", Fuse::Util::vector_to_string(events), reference_set_idx);
-
 	auto reference_set_iter = this->loaded_reference_distributions.find(reference_set_idx);
 
 	// Load it if it is not loaded
 	bool was_loaded = true;
 	if(reference_set_iter == this->loaded_reference_distributions.end()){
 
-		reference_distribution_per_symbol = this->load_reference_distribution(reference_set_idx, repeat_idx);
+		reference_distribution_per_symbol = this->load_reference_distribution_from_disk(reference_set_idx, repeat_idx);
 		was_loaded = false;
 
 	} else {
@@ -893,7 +949,7 @@ std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribut
 		auto repeat_iter = reference_set_iter->second.find(repeat_idx);
 		if(repeat_iter == reference_set_iter->second.end()){
 
-			reference_distribution_per_symbol = this->load_reference_distribution(reference_set_idx, repeat_idx);
+			reference_distribution_per_symbol = this->load_reference_distribution_from_disk(reference_set_idx, repeat_idx);
 			was_loaded = false;
 
 		} else {
@@ -933,6 +989,29 @@ std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribut
 
 }
 
+std::pair<double, double> Fuse::Target::get_or_load_calibration_tmd(
+		Fuse::Event_set events,
+		Fuse::Symbol symbol
+		){
+
+	auto reference_idx = this->get_reference_pair_index_for_event_pair(events);
+
+	if(this->calibrations_loaded == false){
+		this->calibration_tmds = this->load_reference_calibrations_per_symbol();
+	}
+
+	auto symbol_iter = this->calibration_tmds.find(symbol);
+	if(symbol_iter == this->calibration_tmds.end())
+		return std::make_pair(-1.0,-1.0);
+
+	auto pair_iter = symbol_iter->second.find(reference_idx);
+	if(pair_iter == symbol_iter->second.end())
+		return std::make_pair(-1.0,-1.0);
+
+	return pair_iter->second;
+
+}
+
 void Fuse::Target::save_reference_calibration_tmd_to_disk(
 		Fuse::Symbol symbol,
 		Fuse::Event_set events,
@@ -945,7 +1024,12 @@ void Fuse::Target::save_reference_calibration_tmd_to_disk(
 		double mean_num_instances // to be used as a 'weight' for the symbol
 		){
 
-	spdlog::trace("Storing reference calibration TMD for reference index {}.", reference_idx);
+	spdlog::trace("Storing calibration TMD {} for symbol '{}' and reference {}:{}.",
+		median,
+		symbol,
+		reference_idx,
+		Fuse::Util::vector_to_string(events)
+	);
 
 	auto filename = this->get_calibration_tmds_filename();
 
@@ -979,16 +1063,21 @@ void Fuse::Target::save_reference_calibration_tmd_to_disk(
 }
 
 std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
-		Fuse::Target::get_reference_calibration(
+		Fuse::Target::load_reference_calibrations_per_symbol(
 		){
 
+	this->calibrations_loaded = true;
 	std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > > calibration_per_reference_per_symbol;
 
 	auto filename = this->get_calibration_tmds_filename();
 
 	auto file_stream = std::ifstream(filename);
 	if(file_stream.is_open() == false)
-		throw std::runtime_error(fmt::format("Unable to open {} to load calibration tmds.", filename));
+		return calibration_per_reference_per_symbol;
+		//throw std::runtime_error(fmt::format("Unable to open {} to load calibration tmds.", filename));
+
+	std::string header;
+	file_stream >> header;
 
 	std::string line;
 	while(file_stream >> line){
@@ -1032,6 +1121,75 @@ std::map<Fuse::Symbol, std::map<unsigned int, std::pair<double, double> > >
 
 }
 
+void Fuse::Target::save_accuracy_results_to_disk(
+		Fuse::Accuracy_metric metric,
+		Fuse::Strategy strategy,
+		unsigned int repeat_idx,
+		double epd,
+		const std::map<unsigned int, double> tmd_per_reference_pair
+		){
+
+	spdlog::trace("Storing {} accuracy reuslts for strategy '{}' repeat {}.",
+		Fuse::convert_metric_to_string(metric),
+		Fuse::convert_strategy_to_string(strategy),
+		repeat_idx
+	);
+
+	auto filename = this->get_results_filename(metric);
+
+	auto requires_header = true;
+	if(Fuse::Util::check_file_existance(filename))
+		requires_header = false;
+
+	auto file_stream = std::ofstream(filename, std::ios_base::app);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to store accuracy results.", filename));
+
+	// TODO should condition on metric
+	if(requires_header){
+		std::string header("strategy,repeat,pair_idx,events,calibrated_tmd\n");
+		file_stream << header;
+	}
+
+	auto strategy_str = Fuse::convert_strategy_to_string(strategy);
+	auto event_pairs = this->get_reference_pairs();
+
+	// Overall
+	file_stream << strategy_str;
+	file_stream << "," << repeat_idx;
+	file_stream << ",-1";
+	file_stream << ",overall";
+	file_stream << "," << epd << std::endl;
+
+	// Per reference pair
+	for(auto pair : tmd_per_reference_pair){
+		file_stream << strategy_str;
+		file_stream << "," << repeat_idx;
+		file_stream << "," << pair.first;
+		file_stream << "," << Fuse::Util::vector_to_string(event_pairs.at(pair.first), true, "-");
+		file_stream << "," << pair.second << std::endl;
+	}
+
+	file_stream.close();
+
+}
+
+unsigned int Fuse::Target::get_reference_pair_index_for_event_pair(
+		Fuse::Event_set pair
+		){
+
+	std::sort(pair.begin(), pair.end());
+
+	auto all_pairs = this->get_reference_pairs();
+	for(decltype(all_pairs.size()) pair_idx=0; pair_idx<all_pairs.size(); pair_idx++){
+		if(pair.at(0) == all_pairs.at(pair_idx).at(0) && pair.at(1) == all_pairs.at(pair_idx).at(1))
+			return pair_idx;
+	}
+
+	throw std::runtime_error(fmt::format("Cannot find reference pair index for events {}.",
+		Fuse::Util::vector_to_string(pair)));
+}
+
 unsigned int Fuse::Target::get_reference_set_index_for_events(
 		Fuse::Event_set events
 		){
@@ -1059,7 +1217,7 @@ unsigned int Fuse::Target::get_reference_set_index_for_events(
 
 }
 
-std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_reference_distribution(
+std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > Fuse::Target::load_reference_distribution_from_disk(
 		unsigned int reference_idx,
 		unsigned int repeat_idx
 		){
@@ -1234,9 +1392,132 @@ std::vector<Fuse::Event_set> Fuse::Target::get_reference_pairs(){
 
 }
 
+Fuse::Profile_p Fuse::Target::get_or_load_combined_profile(
+		Fuse::Strategy strategy,
+		unsigned int repeat_idx
+		){
 
+	// Check if it has been combined and thus able to be loaded
+	auto indexes_iter = this->combined_indexes.find(strategy);
+	if(indexes_iter == this->combined_indexes.end()
+			|| std::find(indexes_iter->second.begin(), indexes_iter->second.end(), repeat_idx)
+				== indexes_iter->second.end()){
 
+		throw std::invalid_argument(fmt::format(
+			"Cannot load combined profile for strategy {} and repeat {}, as this combination does not exist.",
+			Fuse::convert_strategy_to_string(strategy),
+			repeat_idx)
+		);
 
+	}
 
+	Fuse::Profile_p profile;
 
+	auto strategy_iter = this->loaded_combined_profiles.find(strategy);
+	if(strategy_iter == this->loaded_combined_profiles.end()){
+
+		profile = this->load_combined_profile_from_disk(strategy, repeat_idx);
+
+		std::map<unsigned int, Fuse::Profile_p> profiles;
+		profiles.insert(std::make_pair(repeat_idx, profile));
+
+		this->loaded_combined_profiles.insert(std::make_pair(strategy, profiles));
+
+	} else {
+
+		auto repeat_iter = strategy_iter->second.find(repeat_idx);
+		if(repeat_iter == strategy_iter->second.end()){
+
+			profile = this->load_combined_profile_from_disk(strategy, repeat_idx);
+
+			strategy_iter->second.insert(std::make_pair(repeat_idx, profile));
+
+		} else {
+
+			profile = repeat_iter->second;
+
+		}
+
+	}
+
+	return profile;
+
+}
+
+Fuse::Profile_p Fuse::Target::load_combined_profile_from_disk(
+		Fuse::Strategy strategy,
+		unsigned int repeat_idx
+		){
+
+	std::string combined_instances_filename = this->get_combination_filename(strategy, repeat_idx);
+
+	Fuse::Profile_p combined_profile(new Fuse::Execution_profile(combined_instances_filename, this->get_target_binary()));
+
+	auto file_stream = std::ifstream(combined_instances_filename);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Cannot open '{}' to load a combined profile.", combined_instances_filename));
+
+	std::string header;
+	file_stream >> header;
+
+	// These are captured as instance member variables, rather than the instance's vector
+	std::vector<std::string> non_events = {
+		"cpu",
+		"label",
+		"symbol",
+		"start",
+		"end",
+		"gpu_eligible"
+	};
+
+	auto header_vec = Fuse::Util::split_string_to_vector(header, ',');
+	for(auto event : header_vec){
+		if(std::find(non_events.begin(), non_events.end(), event) == non_events.end())
+			combined_profile->add_event(event);
+	}
+
+	std::string line;
+	while(file_stream >> line){
+
+		Fuse::Instance_p instance(new Fuse::Instance());
+		auto split_line = Fuse::Util::split_string_to_vector(line, ',');
+
+		for(decltype(split_line.size()) event_idx=0; event_idx<split_line.size(); event_idx++){
+
+			auto event = header_vec.at(event_idx);
+			auto value_str = split_line.at(event_idx);
+
+			if(value_str == "unknown")
+				continue;
+
+			if(event == "cpu")
+				instance->cpu = static_cast<unsigned int>(std::stoul(value_str));
+			else if(event == "label")
+				instance->label = Fuse::convert_label_str_to_label(value_str);
+			else if(event == "symbol")
+				instance->symbol = value_str;
+			else if(event == "start")
+				instance->start = std::stoul(value_str);
+			else if(event == "end")
+				instance->end = std::stoul(value_str);
+			else if(event == "gpu_eligible")
+				instance->is_gpu_eligible = std::stoi(value_str);
+			else
+				instance->append_event_value(event, std::stoul(value_str), true);
+
+		}
+
+		// Add the instance to the profile and continue
+		combined_profile->add_instance(instance);
+
+	}
+
+	spdlog::debug("Loaded combined profile for strategy {} and repeat {} from disk.",
+		Fuse::convert_strategy_to_string(strategy),
+		repeat_idx
+	);
+
+	return combined_profile;
+
+}
 

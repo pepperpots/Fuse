@@ -427,6 +427,12 @@ double Fuse::calculate_median_from_values(std::vector<double> values){
 
 double Fuse::calculate_weighted_geometric_mean(std::vector<double> samples, std::vector<double> weights){
 
+	if(weights.size() == 0)
+		weights.assign(samples.size(),1.0);
+	else if (weights.size() != samples.size())
+		throw std::runtime_error(fmt::format(
+			"Cannot calculate weighted geometric mean for {} samples and {] weights.", samples.size(), weights.size()));
+
 	mpfr_t product;
 	mpfr_init_set_d(product, 1.0, MPFR_RNDD); // prod({sample_i}^{w_i} for i in num_samples)
 

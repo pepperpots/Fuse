@@ -48,6 +48,13 @@ namespace Fuse {
 		bool keep_in_memory = true
 	);
 
+	void analyse_sequence_combinations(
+		Fuse::Target& target,
+		std::vector<Fuse::Strategy> strategies,
+		std::vector<unsigned int> repeat_indexes,
+		Fuse::Accuracy_metric metric
+	);
+
 	void calculate_calibration_tmds(
 		Fuse::Target& target
 	);

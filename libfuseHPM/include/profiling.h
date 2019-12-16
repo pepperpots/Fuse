@@ -56,7 +56,15 @@ namespace Fuse {
 
 		void clear_system_cache();
 
-		bool compatibility_check(Fuse::Event_set events, std::string papi_directory);
+		std::vector<Fuse::Event_set> greedy_generate_minimal_partitioning(
+			Fuse::Event_set target_events,
+			std::string papi_directory
+		);
+
+		bool compatibility_check(
+			Fuse::Event_set events,
+			std::string papi_directory
+		);
 
 	};
 

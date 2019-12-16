@@ -180,6 +180,7 @@ Fuse::Instance_p Fuse::Combination::combine_instances(
 	combined_instance->cpu = instances_to_combine.at(0)->cpu;
 	combined_instance->symbol = instances_to_combine.at(0)->symbol;
 	combined_instance->start = instances_to_combine.at(0)->start;
+	combined_instance->end = instances_to_combine.at(0)->end; // not necessary
 	combined_instance->is_gpu_eligible = instances_to_combine.at(0)->is_gpu_eligible;
 
 	// Add all the event value data

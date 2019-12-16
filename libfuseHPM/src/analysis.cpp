@@ -1,5 +1,6 @@
 #include "analysis.h"
 #include "config.h"
+#include "util.h"
 
 /* Assertions within the EMD implementation cause it to fail when two distributions are equivalent
  * Removing the assertions via NDEBUG allows these situations to (intuitively) return 0.0
@@ -82,7 +83,7 @@ std::map<std::vector<double>, Bin> allocate_instances_to_bins(
 		if(bin_iter == populated_bins.end()){
 
 			Bin bin;
-			bin.num_instances = 0;
+			bin.num_instances = 1;
 			bin.per_dimension_summed_values.reserve(bounds_per_dimension.size());
 			for(decltype(bounds_per_dimension.size()) dim_idx=0; dim_idx<bounds_per_dimension.size(); dim_idx++)
 				bin.per_dimension_summed_values.push_back(instance_values.at(dim_idx));
@@ -150,6 +151,9 @@ signature_tt<double> convert_distribution_to_bounded_signature(
 	// Convert each bin into the signature format for fast_emd
 	unsigned int bin_idx = 0;
 	for(auto bin_iter : populated_bins){
+
+		if(bin_iter.second.num_instances < 1)
+			throw std::logic_error("When calculating TMD: found a bin containing no instances.");
 
 		std::vector<double> coords = bin_iter.first;
 		double weight = static_cast<double>(bin_iter.second.num_instances) / total_num_instances;

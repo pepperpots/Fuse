@@ -23,9 +23,9 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 		("e,execute_sequence", "Execute the sequence. Argument is number of repeat sequence executions. Conditioned by 'minimal', 'filter_events'.", cxxopts::value<unsigned int>())
 		("m,combine_sequence", "Combine the sequence repeats. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'filter_events'.")
 		("t,execute_hem", "Execute the HEM execution profile. Argument is number of repeat executions. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
-		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'accuracy_metric', 'filter_events'.")
-		("r,execute_references", "Execute the reference execution profiles. Conditioned by 'filter_events'.", cxxopts::value<unsigned int>())
-		("c,run_calibration", "Run EPD calibration on the reference profiles. Conditioned by 'filter_events'.");
+		("a,analyse_accuracy", "Analyse accuracy of combined execution profiles. Conditioned by 'strategies', 'repeat_indexes', 'minimal', 'accuracy_metric'.")
+		("r,execute_references", "Execute the reference execution profiles.", cxxopts::value<unsigned int>())
+		("c,run_calibration", "Run EPD calibration on the reference profiles.");
 
 	options.add_options("Utility")
 		("dump_instances", "Dumps an execution profile matrix. Argument is the output file. Requires 'tracefile', 'benchmark'.", cxxopts::value<std::string>())
@@ -37,6 +37,7 @@ cxxopts::Options setup_options(char* argv, std::vector<std::string>& main_option
 		("repeat_indexes", "Comma-separated list of sequence repeat indexes to operate on, or 'all'. Defaults to all repeat indexes.",cxxopts::value<std::string>()->default_value("all"))
 		("minimal", "Use minimal execution profiles (default is non-minimal). Strategies 'bc' and 'hem' cannot use minimal.", cxxopts::value<bool>()->default_value("false"))
 		("filter_events", "Main options only load and dump data for the events defined in the target JSON (i.e. exclude non HPM events). Default is false.", cxxopts::value<bool>()->default_value("false"))
+		("accuracy_metric", "Accuracy metric to use for analysis, out of {'epd', 'spearmans'}. Default is 'epd'.", cxxopts::value<std::string>()->default_value("epd"))
 		("tracefile", "Argument is the tracefile to load for utility options.", cxxopts::value<std::string>())
 		("benchmark", "Argument is the benchmark to use when loading tracefile for utility options.", cxxopts::value<std::string>());
 
@@ -130,6 +131,19 @@ std::vector<Fuse::Strategy> parse_strategies_option(
 	}
 
 	return strategies;
+}
+
+Fuse::Accuracy_metric parse_accuracy_metric_option(
+		const cxxopts::ParseResult& options_parse_result
+		){
+
+	if(options_parse_result.count("accuracy_metric") == false)
+		throw std::invalid_argument("To analyse accuracy of Fuse combinations, the 'accuracy_metric' option must be provided.");
+
+	auto metric_str = options_parse_result["accuracy_metric"].as<std::string>();
+
+	return Fuse::convert_string_to_metric(metric_str);
+
 }
 
 std::vector<unsigned int> parse_repeat_indexes_option(
@@ -238,6 +252,13 @@ void run_main_options(const cxxopts::ParseResult& options_parse_result){
 
 	if(options_parse_result.count("run_calibration")){
 		Fuse::calculate_calibration_tmds(fuse_target);
+	}
+
+	if(options_parse_result.count("analyse_accuracy")){
+		auto strategies = parse_strategies_option(options_parse_result, minimal);
+		auto repeat_indexes = parse_repeat_indexes_option(options_parse_result, fuse_target, minimal, strategies);
+		Fuse::Accuracy_metric metric = parse_accuracy_metric_option(options_parse_result);
+		Fuse::analyse_sequence_combinations(fuse_target, strategies, repeat_indexes, metric);
 	}
 
 }

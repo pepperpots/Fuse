@@ -1,4 +1,5 @@
 #include "fuse_types.h"
+#include "util.h"
 
 #include "spdlog/spdlog.h"
 
@@ -28,7 +29,8 @@ Fuse::Strategy Fuse::convert_string_to_strategy(std::string strategy_string, boo
 	throw std::invalid_argument(
 		fmt::format("Could not resolve provided strategy '{}' with minimal={} to a supported combination strategy.",
 			strategy_string,
-			minimal));
+			minimal)
+	);
 
 }
 
@@ -47,7 +49,8 @@ Fuse::Strategy Fuse::convert_string_to_strategy(std::string strategy_string){
 	if(strategy_string == "bc") return Fuse::Strategy::BC;
 
 	throw std::invalid_argument(
-			fmt::format("Could not resolve strategy '{}' to a supported combination strategy.", strategy_string));
+		fmt::format("Could not resolve strategy '{}' to a supported combination strategy.", strategy_string)
+	);
 
 }
 
@@ -67,7 +70,54 @@ std::string Fuse::convert_strategy_to_string(Fuse::Strategy strategy){
 		default:
 			throw std::logic_error(
 					fmt::format("Could not resolve a configured strategy (integer enum value is {}) to a string representation.",
-						static_cast<int>(strategy)));
+						static_cast<int>(strategy))
+			);
 	};
 
+}
+
+Fuse::Accuracy_metric Fuse::convert_string_to_metric(std::string metric_string){
+
+	if(metric_string == "epd") return Fuse::Accuracy_metric::EPD;
+	if(metric_string == "epd_tt") return Fuse::Accuracy_metric::EPD_TT;
+	if(metric_string == "spearmans") return Fuse::Accuracy_metric::SPEARMANS;
+
+	throw std::invalid_argument(
+		fmt::format("Could not resolve metric '{}' to a supported accuracy metric.", metric_string)
+	);
+
+}
+
+std::string Fuse::convert_metric_to_string(Fuse::Accuracy_metric metric){
+
+	switch(metric){
+		case Fuse::Accuracy_metric::EPD: return "epd";
+		case Fuse::Accuracy_metric::EPD_TT: return "epd_tt";
+		case Fuse::Accuracy_metric::SPEARMANS: return "spearmans";
+		default:
+			throw std::logic_error(
+				fmt::format("Could not resolve a configured metric (integer enum value is {}) to a string representation.",
+					static_cast<int>(metric))
+			);
+	};
+
+}
+
+std::vector<int> Fuse::convert_label_str_to_label(std::string label_str){
+
+	label_str = label_str.substr(1,label_str.size()); // assuming label of form "[int,int,...]"
+	label_str = label_str.substr(0,label_str.size()-1);
+
+	auto label_str_vector = Fuse::Util::split_string_to_vector(label_str, '-');
+
+	std::vector<int> label_vec;
+	if(label_str_vector.front() == ""){
+		label_vec.push_back(0 - std::stoi(label_str_vector.at(1)));
+	} else {
+		label_vec.reserve(label_str_vector.size());
+		for(auto rank_str : label_str_vector)
+			label_vec.push_back(std::stoi(rank_str));
+	}
+
+	return label_vec;
 }

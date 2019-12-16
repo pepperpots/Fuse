@@ -32,7 +32,10 @@ namespace Fuse {
 
 	Fuse::Stats calculate_stats_from_values(std::vector<double> values);
 	double calculate_median_from_values(std::vector<double> values);
-	double calculate_weighted_geometric_mean(std::vector<double> samples, std::vector<double> weights);
+	double calculate_weighted_geometric_mean(
+		std::vector<double> samples,
+		std::vector<double> weights = std::vector<double>()
+	);
 
 	class Statistics {
 

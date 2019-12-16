@@ -133,6 +133,41 @@ void Fuse::Profiling::clear_system_cache(){
 
 }
 
+std::vector<Fuse::Event_set> Fuse::Profiling::greedy_generate_minimal_partitioning(
+		Fuse::Event_set target_events,
+		std::string papi_directory
+		){
+
+	std::vector<Fuse::Event_set> minimal_sets;
+
+	target_events = Fuse::Util::vector_to_uppercase(target_events);
+	std::reverse(target_events.begin(), target_events.end()); // so that I can pop_back to get the front
+
+	Fuse::Event_set current_set;
+	while(target_events.size() > 0){
+
+		auto event = target_events.back();
+		current_set.push_back(event);
+
+		if(Fuse::Profiling::compatibility_check(current_set, papi_directory)){
+			target_events.pop_back();
+			// continue
+		} else {
+			current_set.pop_back();
+			// save the current set and start a new one
+			minimal_sets.push_back(Fuse::Util::vector_to_lowercase(current_set));
+			current_set.clear();
+		}
+
+	}
+
+	if(current_set.size() > 0)
+		minimal_sets.push_back(current_set);
+
+	return minimal_sets;
+
+}
+
 bool Fuse::Profiling::compatibility_check(Fuse::Event_set events, std::string papi_directory){
 
 	std::stringstream ss;
