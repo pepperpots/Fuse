@@ -12,7 +12,7 @@ set(CMAKE_CXX_FLAGS "-fpermissive -DCOMPILE_C -fopenmp")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 
-add_library(fuseHPM SHARED
+set(lib_SOURCES
 	src/config.cpp
 	src/fuse.cpp
 	src/target.cpp
@@ -26,10 +26,21 @@ add_library(fuseHPM SHARED
 	src/analysis.cpp
 )
 
-find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
-if(NOT (EXISTS "${AFTERMATH_INCLUDE_DIR}/aftermath/core/multi_event_set.h" OR EXISTS "aftermath/core/multi_event_set.h"))
-	message(FATAL_ERROR "Cannot find Aftermath headers. Provide non-standard aftermath include directory via the CMake parameter AFTERMATH_INCLUDE_DIR" )
-ENDIF()
+if(AFTERMATH_LEGACY)
+
+	add_definitions(-DAFTERMATH_LEGACY)
+	set(lib_SOURCES ${lib_SOURCES} src/trace_aftermath_legacy.cpp)
+
+	find_library(AFTERMATH_LIB aftermath-core REQUIRED HINTS ${AFTERMATH_LIB_DIR})
+	if(NOT (EXISTS "${AFTERMATH_INCLUDE_DIR}/aftermath/core/multi_event_set.h" OR EXISTS "aftermath/core/multi_event_set.h"))
+		message(FATAL_ERROR "Cannot find Aftermath headers. Provide non-standard aftermath include directory via the CMake parameter AFTERMATH_INCLUDE_DIR" )
+	endif()
+
+else()
+	set(lib_SOURCES ${lib_SOURCES} trace_aftermath.cpp)
+endif()
+
+add_library(fuseHPM SHARED ${lib_SOURCES})
 
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "Build static lib" FORCE)
 add_subdirectory(external/spdlog)

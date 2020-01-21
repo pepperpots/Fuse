@@ -43,6 +43,8 @@ The project can be built via CMake, for example:
     cmake -DCMAKE_BUILD_TYPE=RELEASE -DAFTERMATH_INCLUDE_DIR=... -DAFTERMATH_LIB_DIR=... ../
     make
 
+FuseHPM can operate on Aftermath trace-files (default), as well as 'legacy' Aftermath trace-files. To use the latter, provide `-DAFTERMATH_LEGACY=1` to the cmake build.
+
 ### Using the tool
 
 Fuse is executed with command line options. These options can be viewed via:

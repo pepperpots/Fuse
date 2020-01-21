@@ -24,7 +24,7 @@ Fuse::Profile_p Fuse::Profiling::execute_and_load(
 	Fuse::Profiling::execute(runtime, binary, args, tracefile, profiled_events, clear_cache, multiplex);
 
 	Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, binary, filtered_events));
-	execution_profile->load_from_tracefile(false);
+	execution_profile->load_from_tracefile(runtime, false);
 
 	return execution_profile;
 

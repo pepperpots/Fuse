@@ -361,7 +361,7 @@ std::vector<Fuse::Instance_p> Fuse::Combination::generate_combined_instances_bc(
 
 		spdlog::info("Running BC combination {} to incorporate {} using overlapping events {}.",
 			combination_idx,
-			next_profile->tracefile,
+			next_profile->get_tracefile_name(),
 			Fuse::Util::vector_to_string(overlapping_per_profile.at(combination_idx))
 		);
 

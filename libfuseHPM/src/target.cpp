@@ -18,14 +18,8 @@ void Fuse::Target::parse_json_mandatory(nlohmann::json& j){
 	this->binary = j["binary"];
 	this->binary_directory = j["binary_directory"];
 
-	if(j["runtime"] == "openstream")
-		this->runtime = Fuse::Runtime::OPENSTREAM;
-	else if(j["runtime"] == "openmp")
-		this->runtime = Fuse::Runtime::OPENMP;
-	else
-		throw std::invalid_argument(
-				fmt::format("Runtime '{}' is not supported. Requires 'openstream' or 'openmp'.",
-					static_cast<std::string>(j["runtime"])));
+	std::string runtime_str = j["runtime"];
+	this->runtime = Fuse::convert_string_to_runtime(runtime_str);
 
 	for(auto event : j["target_events"])
 		this->target_events.push_back(Fuse::Util::lowercase(event));
@@ -232,14 +226,7 @@ void Fuse::Target::generate_json_mandatory(nlohmann::json& j){
 	j["binary"] = this->binary;
 	j["binary_directory"] = this->binary_directory;
 
-	if(this->runtime == Fuse::Runtime::OPENSTREAM)
-		j["runtime"] = "openstream";
-	else if(this->runtime == Fuse::Runtime::OPENMP)
-		j["runtime"] = "openmp";
-	else
-		throw std::logic_error(
-				fmt::format("Could not resolve a runtime (integer enum value is {}) to a string representation.",
-					static_cast<int>(this->runtime)));
+	j["runtime"] = Fuse::convert_runtime_to_string(this->runtime);
 
 	j["references_directory"] = this->references_directory;
 	j["tracefiles_directory"] = this->tracefiles_directory;
@@ -616,7 +603,7 @@ std::vector<Fuse::Profile_p> Fuse::Target::load_and_retrieve_sequence_profiles(
 		auto tracefile = ss.str();
 
 		Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, this->get_target_binary(), this->filtered_events));
-		execution_profile->load_from_tracefile(false);
+		execution_profile->load_from_tracefile(this->get_target_runtime(), false);
 
 		sequence_profiles.push_back(execution_profile);
 

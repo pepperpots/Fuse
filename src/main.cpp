@@ -283,7 +283,7 @@ void run_utility_options(const cxxopts::ParseResult& options_parse_result){
 
 	/* Now load */
 	Fuse::Profile_p execution_profile(new Fuse::Execution_profile(tracefile, benchmark));
-	execution_profile->load_from_tracefile(load_communication_matrix);
+	execution_profile->load_from_tracefile(Fuse::Runtime::ALL, load_communication_matrix);
 
 	if(options_parse_result.count("dump_instances")){
 		std::string output_file = options_parse_result["dump_instances"].as<std::string>();
@@ -296,6 +296,7 @@ void run_utility_options(const cxxopts::ParseResult& options_parse_result){
 	}
 
 	if(options_parse_result.count("dump_dag_dot")){
+		spdlog::warn("Large instance DAGs as .dot files may take a long time to render.");
 		std::string output_file = options_parse_result["dump_dag_dot"].as<std::string>();
 		execution_profile->dump_instance_dependencies_dot(output_file);
 	}

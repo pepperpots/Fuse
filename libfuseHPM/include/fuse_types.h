@@ -15,7 +15,8 @@ namespace Fuse {
 
 	enum Runtime {
 		OPENSTREAM,
-		OPENMP
+		OPENMP,
+		ALL
 	};
 
 	enum Strategy {
@@ -55,10 +56,13 @@ namespace Fuse {
 
 	Strategy convert_string_to_strategy(std::string strategy_string, bool minimal);
 	Strategy convert_string_to_strategy(std::string strategy_string);
-	std::string convert_strategy_to_string(Strategy strategy);
+	std::string convert_strategy_to_string(Fuse::Strategy strategy);
 
 	Accuracy_metric convert_string_to_metric(std::string metric_string);
-	std::string convert_metric_to_string(Accuracy_metric metric);
+	std::string convert_metric_to_string(Fuse::Accuracy_metric metric);
+
+	std::string convert_runtime_to_string(Fuse::Runtime runtime);
+	Fuse::Runtime convert_string_to_runtime(std::string runtime_str);
 
 	std::vector<int> convert_label_str_to_label(std::string label_str);
 

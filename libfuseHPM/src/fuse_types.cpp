@@ -121,3 +121,35 @@ std::vector<int> Fuse::convert_label_str_to_label(std::string label_str){
 
 	return label_vec;
 }
+
+std::string Fuse::convert_runtime_to_string(Fuse::Runtime runtime){
+
+	std::string runtime_str;
+	if(runtime == Fuse::Runtime::OPENSTREAM)
+		runtime_str = "openstream";
+	else if(runtime == Fuse::Runtime::OPENMP)
+		runtime_str = "openmp";
+	else if(runtime == Fuse::Runtime::ALL)
+		runtime_str = "unknown";
+	else
+		throw std::logic_error(
+				fmt::format("Could not resolve a runtime (integer enum value is {}) to a string representation.",
+					static_cast<int>(runtime)));
+
+	return runtime_str;
+}
+
+Fuse::Runtime Fuse::convert_string_to_runtime(std::string runtime_str){
+
+	if(runtime_str == "openstream")
+		return Fuse::Runtime::OPENSTREAM;
+	else if(runtime_str == "openmp")
+		return Fuse::Runtime::OPENMP;
+	else if(runtime_str == "openmp")
+		return Fuse::Runtime::ALL;
+	else
+		throw std::invalid_argument(
+				fmt::format("Runtime '{}' is not supported. Requires 'openstream' or 'openmp'.",
+					static_cast<std::string>(runtime_str)));
+
+}
