@@ -61,6 +61,11 @@ void Fuse::Profiling::execute(
 
 			throw std::logic_error("OpenMP Fuse not yet implemented.");
 			break;
+
+		case Fuse::Runtime::ALL:
+
+			throw std::logic_error("Must specify a particular runtime to execute.");
+			break;
 	}
 
 	if(success == false){

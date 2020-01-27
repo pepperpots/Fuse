@@ -37,7 +37,7 @@ if(AFTERMATH_LEGACY)
 	endif()
 
 else()
-	set(lib_SOURCES ${lib_SOURCES} trace_aftermath.cpp)
+	set(lib_SOURCES ${lib_SOURCES} src/trace_aftermath.cpp)
 endif()
 
 add_library(fuseHPM SHARED ${lib_SOURCES})

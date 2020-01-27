@@ -41,10 +41,10 @@ void Fuse::Execution_profile::load_from_tracefile(
 	if(exists == false)
 		throw std::runtime_error(fmt::format("The tracefile to be loaded '{}' does not exist.", this->tracefile));
 
-#ifdef AFTERMATH_LEGACY
+#if defined AFTERMATH_LEGACY && AFTERMATH_LEGACY == 1
 	std::unique_ptr<Fuse::Trace> trace_impl(new Trace_aftermath_legacy(*this));
 #else
-	throw std::logic_error("New aftermath traces not yet implemented.");
+	#error New Aftermath traces not yet implemented
 #endif
 
 	trace_impl->parse_trace(runtime, load_communication_matrix);
