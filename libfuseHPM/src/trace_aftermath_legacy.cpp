@@ -9,6 +9,7 @@
 #include "boost/icl/interval_map.hpp"
 
 #include <fstream>
+#include <limits>
 #include <queue>
 #include <set>
 #include <sstream>
@@ -62,6 +63,7 @@ void Fuse::Trace_aftermath_legacy::parse_instances_from_mes(struct multi_event_s
 		bool load_communication_matrix
 		){
 
+	// TODO add the events to the profile ahead of time, rather than each time we encounter a value
 	if(runtime == Fuse::Runtime::ALL || runtime == Fuse::Runtime::OPENSTREAM)
 		this->parse_openstream_instances(mes, load_communication_matrix);
 
@@ -837,6 +839,7 @@ void Fuse::Trace_aftermath_legacy::interpolate_and_append_counter_values(
 		spdlog::warn("Found {} errors when interpolating counter events for an instance.", num_errors);
 
 	// Append instance duration as an event
+	Fuse::Trace::profile.add_event("duration");
 	int64_t duration = end_time - start_time;
 	instance->append_event_value("duration",duration,true);
 
@@ -847,10 +850,42 @@ bool sort_omp_by_time(struct Fuse::Aftermath_omp_construct ompc_one, struct Fuse
 }
 
 std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::gather_openmp_parsing_constructs(struct multi_event_set* mes){
+	
+	uint64_t measurement_start = 0;
+	uint64_t measurement_end = std::numeric_limits<uint64_t>::max();
+
+	// Check if there is a measurement start time
+	// TODO there may be multiple measurement intervals
+	// TODO what should labels be? Whole program or only measurement interval?
+	if(mes->num_global_single_events > 0){
+
+		for(unsigned int gse_idx=0; gse_idx < mes->num_global_single_events; gse_idx++){
+			struct global_single_event gse = mes->global_single_events[gse_idx];
+
+			if(gse.type == GLOBAL_SINGLE_TYPE_MEASURE_START){
+
+				measurement_start = gse.time;
+				spdlog::debug("Found a measurement start event, only processing trace events after time {}.", measurement_start);
+
+			} else if(gse.type == GLOBAL_SINGLE_TYPE_MEASURE_END){
+
+				measurement_end = gse.time;
+				spdlog::debug("Found a measurement end event, only processing trace events before time {}.", measurement_end);
+
+			}
+		}
+
+	}
 
 	std::vector<struct Fuse::Aftermath_omp_construct> omp_constructs;
 
 	for(struct omp_for_chunk_set* cs = &mes->omp_for_chunk_sets[0]; cs < &mes->omp_for_chunk_sets[mes->num_omp_for_chunk_sets]; cs++){
+
+		if(cs->min_start < measurement_start || cs->min_start > measurement_end)
+			continue;
+		
+		if(cs->max_end < measurement_start || cs->max_end > measurement_end)
+			continue;
 
 		struct Fuse::Aftermath_omp_construct construct_enter;
 		construct_enter.type = Fuse::Omp_construct_type::CHUNK_SET_ENTER;
@@ -873,6 +908,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		for(unsigned int idx = 0; idx < es->num_omp_pregion_enters; idx++){
 
 			struct omp_pregion_enter* pregion_enter = &es->omp_pregion_enters[idx];
+		
+			if(pregion_enter->time < measurement_start || pregion_enter->time > measurement_end)
+				continue;
 
 			struct Fuse::Aftermath_omp_construct construct;
 			construct.type = Fuse::Omp_construct_type::PREGION_ENTER;
@@ -886,6 +924,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		for(unsigned int idx = 0; idx < es->num_omp_pregion_leaves; idx++){
 
 			struct omp_pregion_leave* pregion_leave = &es->omp_pregion_leaves[idx];
+
+			if(pregion_leave->time < measurement_start || pregion_leave->time > measurement_end)
+				continue;
 
 			struct Fuse::Aftermath_omp_construct construct;
 			construct.type = Fuse::Omp_construct_type::PREGION_LEAVE;
@@ -904,6 +945,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_enter.time = es->omp_for_chunk_set_parts[idx].start + 2;
 			construct_enter.ptr.csp = &es->omp_for_chunk_set_parts[idx];
 
+			if(construct_enter.time < measurement_start || construct_enter.time > measurement_end)
+				continue;
+
 			omp_constructs.push_back(construct_enter);
 
 			struct Fuse::Aftermath_omp_construct construct_leave;
@@ -911,6 +955,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_leave.cpu = es->omp_for_chunk_set_parts[idx].chunk_set->cpu;
 			construct_leave.time = es->omp_for_chunk_set_parts[idx].end;
 			construct_leave.ptr.csp = &es->omp_for_chunk_set_parts[idx];
+
+			if(construct_leave.time < measurement_start || construct_leave.time > measurement_end)
+				continue;
 
 			omp_constructs.push_back(construct_leave);
 
@@ -924,6 +971,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_part_enter.time = es->omp_task_parts[idx].start + 2;
 			construct_part_enter.ptr.tp = &es->omp_task_parts[idx];
 
+			if(construct_part_enter.time < measurement_start || construct_part_enter.time > measurement_end)
+				continue;
+
 			omp_constructs.push_back(construct_part_enter);
 
 			struct Fuse::Aftermath_omp_construct construct_part_leave;
@@ -931,6 +981,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_part_leave.cpu = es->omp_task_parts[idx].cpu;
 			construct_part_leave.time = es->omp_task_parts[idx].end;
 			construct_part_leave.ptr.tp = &es->omp_task_parts[idx];
+			
+			if(construct_part_leave.time < measurement_start || construct_part_leave.time > measurement_end)
+				continue;
 
 			omp_constructs.push_back(construct_part_leave);
 
@@ -944,6 +997,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_single.time = es->omp_singles[idx].time;
 			construct_single.ptr.os = &es->omp_singles[idx];
 
+			if(construct_single.time < measurement_start || construct_single.time > measurement_end)
+				continue;
+
 			omp_constructs.push_back(construct_single);
 
 			if(es->omp_singles[idx].executed == 0){
@@ -953,6 +1009,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 				construct_single_leave.cpu = es->cpu;
 				construct_single_leave.time = es->omp_singles[idx].osl->time;
 				construct_single_leave.ptr.os = &es->omp_singles[idx];
+
+				if(construct_single_leave.time < measurement_start || construct_single_leave.time > measurement_end)
+					continue;
 
 				omp_constructs.push_back(construct_single_leave);
 
@@ -970,6 +1029,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		construct_creation.time = ti->ti_creation->timestamp;
 		construct_creation.ptr.ti = ti;
 
+		if(construct_creation.time < measurement_start || construct_creation.time > measurement_end)
+			continue;
+
 		omp_constructs.push_back(construct_creation);
 
 		struct Fuse::Aftermath_omp_construct construct_part_end;
@@ -977,6 +1039,9 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		construct_part_end.cpu = ti->ti_finish->cpu;
 		construct_part_end.time = ti->ti_finish->timestamp;
 		construct_part_end.ptr.ti = ti;
+
+		if(construct_part_end.time < measurement_start || construct_part_end.time > measurement_end)
+			continue;
 
 		omp_constructs.push_back(construct_part_end);
 
@@ -1304,6 +1369,8 @@ void Fuse::Trace_aftermath_legacy::parse_openmp_instances(struct multi_event_set
 	);
 
 	// Add runtime instances
+	for(auto instance : runtime_instances_by_cpu)
+		Fuse::Trace::profile.add_instance(instance);
 
 }
 
@@ -1807,6 +1874,12 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 	for(auto instance_iter : csps_in_cs){
 
 		auto instance = instance_iter.second.first;
+		
+		auto iteration_space_size = instance_iter.first->iter_end - instance_iter.first->iter_start;
+
+		// Record size of the iteration space
+		Fuse::Trace::profile.add_event("iteration_space_size");
+		instance->append_event_value("iteration_space_size",iteration_space_size,true);
 
 		// Parts should be chronologically ordered within each instance
 		int syscall_hint = -1;
@@ -1824,12 +1897,14 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 				hint
 			);
 
+			Fuse::Trace::profile.add_event("serialized_subtasks");
 			instance->append_event_value("serialized_subtasks",part_iter->serialized_tcreates,true);
 
-			this->process_openmp_syscalls<struct omp_for_chunk_set_part>(
+			this->process_openmp_syscalls(
 				instance,
 				syscalls_by_cpu.at(executed_on_cpu),
-				part_iter,
+				part_iter->start,
+				part_iter->end,
 				syscall_hint
 			);
 
@@ -1861,12 +1936,14 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 				hint
 			);
 
+			Fuse::Trace::profile.add_event("serialized_subtasks");
 			instance->append_event_value("serialized_subtasks",part_iter->serialized_tcreates,true);
 
-			this->process_openmp_syscalls<struct omp_task_part>(
+			this->process_openmp_syscalls(
 				instance,
 				syscalls_by_cpu.at(executed_on_cpu),
-				part_iter,
+				part_iter->start,
+				part_iter->end,
 				syscall_hint
 			);
 
@@ -1879,13 +1956,16 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 
 }
 
-template <class part_type>
 void Fuse::Trace_aftermath_legacy::process_openmp_syscalls(
 		Fuse::Instance_p instance,
 		std::vector<Fuse::Aftermath_omp_construct> syscalls,
-		part_type* part,
+		uint64_t start_time,
+		uint64_t end_time,
 		int& hint
 		){
+
+	if(syscalls.size() == 0)
+		return;
 
 	if(hint == -1){
 		// binary search to find first syscall that might occur in the part
@@ -1896,16 +1976,16 @@ void Fuse::Trace_aftermath_legacy::process_openmp_syscalls(
 		while(end_idx - start_idx >= 0) {
 			center_idx = (start_idx + end_idx) / 2;
 
-			if(syscalls.at(center_idx).time > part->start)
+			if(syscalls.at(center_idx).time > start_time)
 				end_idx = center_idx-1;
-			else if(syscalls.at(center_idx).time < part->start)
+			else if(syscalls.at(center_idx).time < start_time)
 				start_idx = center_idx+1;
 			else
 				break;
 		}
 
 		// iterate backwards until center_idx is the first after the part's start time
-		while(center_idx-1 >= 0 && syscalls.at(center_idx-1).time > part->start)
+		while(center_idx-1 >= 0 && syscalls.at(center_idx-1).time > start_time)
 			center_idx--;
 
 		hint = center_idx;
@@ -1913,7 +1993,7 @@ void Fuse::Trace_aftermath_legacy::process_openmp_syscalls(
 	} else {
 
 		// iterate forward until we are at the first syscall after the start
-		while(hint < syscalls.size() && syscalls.at(hint).time < part->start)
+		while(hint < syscalls.size() && syscalls.at(hint).time < start_time)
 			hint++;
 
 		// there may be no syscalls after the start
@@ -1923,7 +2003,7 @@ void Fuse::Trace_aftermath_legacy::process_openmp_syscalls(
 	}
 
 	// Then move forward one syscall at a time until the end of the part
-	while(syscalls.at(hint).time >= part->start && syscalls.at(hint).time < part->end){
+	while(syscalls.at(hint).time >= start_time && syscalls.at(hint).time < end_time){
 
 		// add this syscall
 		auto syscall = syscalls.at(hint);

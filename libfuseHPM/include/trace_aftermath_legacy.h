@@ -359,11 +359,11 @@ namespace Fuse {
 					tps_in_t
 			);
 
-			template <class part_type>
 			void process_openmp_syscalls(
 				Fuse::Instance_p instance,
 				std::vector<Fuse::Aftermath_omp_construct> syscalls,
-				part_type* part,
+				uint64_t start_time,
+				uint64_t end_time,
 				int& hint
 			);
 
