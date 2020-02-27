@@ -851,29 +851,49 @@ bool sort_omp_by_time(struct Fuse::Aftermath_omp_construct ompc_one, struct Fuse
 
 std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::gather_openmp_parsing_constructs(struct multi_event_set* mes){
 	
+	std::vector<std::pair<uint64_t, uint64_t> > measurement_intervals;
+
 	uint64_t measurement_start = 0;
 	uint64_t measurement_end = std::numeric_limits<uint64_t>::max();
 
-	// Check if there is a measurement start time
-	// TODO there may be multiple measurement intervals
+	// Check if there are user-declared measurement intervals
 	// TODO what should labels be? Whole program or only measurement interval?
 	if(mes->num_global_single_events > 0){
 
+		spdlog::debug("There are {} global single events.", mes->num_global_single_events);
+
+		bool within_interval = false;
+
+		// Assuming that global single events are ordered
+		// TODO (per-CPU? per-instance?) sub measurement intervals
 		for(unsigned int gse_idx=0; gse_idx < mes->num_global_single_events; gse_idx++){
 			struct global_single_event gse = mes->global_single_events[gse_idx];
 
 			if(gse.type == GLOBAL_SINGLE_TYPE_MEASURE_START){
 
+				if(within_interval)
+					throw std::runtime_error("Invalid assumption: Found two consecutive measurement interval start events.");
+
+				within_interval = true;
+
 				measurement_start = gse.time;
-				spdlog::debug("Found a measurement start event, only processing trace events after time {}.", measurement_start);
+				spdlog::debug("Found a measurement start event at time {}.", measurement_start);
 
 			} else if(gse.type == GLOBAL_SINGLE_TYPE_MEASURE_END){
 
-				measurement_end = gse.time;
-				spdlog::debug("Found a measurement end event, only processing trace events before time {}.", measurement_end);
+				if(!within_interval)
+					throw std::runtime_error("Invalid assumption: Found a measurement interval end that didn't follow a measurement interval start.");
+
+				spdlog::debug("Found a measurement end event at time {}.", gse.time);
+
+				measurement_intervals.push_back(std::make_pair(measurement_start, gse.time));
+				within_interval = false;
 
 			}
 		}
+		
+		if(within_interval)
+			measurement_intervals.push_back(std::make_pair(measurement_start, std::numeric_limits<uint64_t>::max()));
 
 	}
 
@@ -881,11 +901,25 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 
 	for(struct omp_for_chunk_set* cs = &mes->omp_for_chunk_sets[0]; cs < &mes->omp_for_chunk_sets[mes->num_omp_for_chunk_sets]; cs++){
 
-		if(cs->min_start < measurement_start || cs->min_start > measurement_end)
-			continue;
-		
-		if(cs->max_end < measurement_start || cs->max_end > measurement_end)
-			continue;
+		// check this event is within the measurement interval if they exist:
+		if(measurement_intervals.size() > 0){
+			// check if within one of the intervals
+			bool process_construct = false;
+			
+			for(auto interval_pair : measurement_intervals){
+				// if the construct is within the interval, it's good
+				if(cs->min_start >= interval_pair.first && cs->max_end <= interval_pair.second){
+					process_construct = true;
+					break;
+				}
+				// if the construct started before the interval, we can break
+				if(cs->min_start < interval_pair.first)
+					break;
+			}
+			
+			if(!process_construct)
+				continue;
+		}
 
 		struct Fuse::Aftermath_omp_construct construct_enter;
 		construct_enter.type = Fuse::Omp_construct_type::CHUNK_SET_ENTER;
@@ -909,8 +943,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 
 			struct omp_pregion_enter* pregion_enter = &es->omp_pregion_enters[idx];
 		
-			if(pregion_enter->time < measurement_start || pregion_enter->time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(pregion_enter->time >= interval_pair.first && pregion_enter->time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(pregion_enter->time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			struct Fuse::Aftermath_omp_construct construct;
 			construct.type = Fuse::Omp_construct_type::PREGION_ENTER;
@@ -925,8 +973,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 
 			struct omp_pregion_leave* pregion_leave = &es->omp_pregion_leaves[idx];
 
-			if(pregion_leave->time < measurement_start || pregion_leave->time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(pregion_leave->time >= interval_pair.first && pregion_leave->time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(pregion_leave->time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			struct Fuse::Aftermath_omp_construct construct;
 			construct.type = Fuse::Omp_construct_type::PREGION_LEAVE;
@@ -945,8 +1007,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_enter.time = es->omp_for_chunk_set_parts[idx].start + 2;
 			construct_enter.ptr.csp = &es->omp_for_chunk_set_parts[idx];
 
-			if(construct_enter.time < measurement_start || construct_enter.time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(construct_enter.time >= interval_pair.first && construct_enter.time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(construct_enter.time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			omp_constructs.push_back(construct_enter);
 
@@ -956,8 +1032,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_leave.time = es->omp_for_chunk_set_parts[idx].end;
 			construct_leave.ptr.csp = &es->omp_for_chunk_set_parts[idx];
 
-			if(construct_leave.time < measurement_start || construct_leave.time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(construct_leave.time >= interval_pair.first && construct_leave.time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(construct_leave.time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			omp_constructs.push_back(construct_leave);
 
@@ -971,8 +1061,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_part_enter.time = es->omp_task_parts[idx].start + 2;
 			construct_part_enter.ptr.tp = &es->omp_task_parts[idx];
 
-			if(construct_part_enter.time < measurement_start || construct_part_enter.time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(construct_part_enter.time >= interval_pair.first && construct_part_enter.time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(construct_part_enter.time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			omp_constructs.push_back(construct_part_enter);
 
@@ -982,8 +1086,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_part_leave.time = es->omp_task_parts[idx].end;
 			construct_part_leave.ptr.tp = &es->omp_task_parts[idx];
 			
-			if(construct_part_leave.time < measurement_start || construct_part_leave.time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(construct_part_leave.time >= interval_pair.first && construct_part_leave.time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(construct_part_leave.time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			omp_constructs.push_back(construct_part_leave);
 
@@ -997,8 +1115,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 			construct_single.time = es->omp_singles[idx].time;
 			construct_single.ptr.os = &es->omp_singles[idx];
 
-			if(construct_single.time < measurement_start || construct_single.time > measurement_end)
-				continue;
+			if(measurement_intervals.size() > 0){
+				// check if within one of the intervals
+				bool process_construct = false;
+				
+				for(auto interval_pair : measurement_intervals){
+					if(construct_single.time >= interval_pair.first && construct_single.time <= interval_pair.second){
+						process_construct = true;
+						break;
+					}
+					if(construct_single.time < interval_pair.first)
+						break;
+				}
+				
+				if(!process_construct)
+					continue;
+			}
 
 			omp_constructs.push_back(construct_single);
 
@@ -1010,8 +1142,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 				construct_single_leave.time = es->omp_singles[idx].osl->time;
 				construct_single_leave.ptr.os = &es->omp_singles[idx];
 
-				if(construct_single_leave.time < measurement_start || construct_single_leave.time > measurement_end)
-					continue;
+				if(measurement_intervals.size() > 0){
+					// check if within one of the intervals
+					bool process_construct = false;
+					
+					for(auto interval_pair : measurement_intervals){
+						if(construct_single_leave.time >= interval_pair.first && construct_single_leave.time <= interval_pair.second){
+							process_construct = true;
+							break;
+						}
+						if(construct_single_leave.time < interval_pair.first)
+							break;
+					}
+				
+					if(!process_construct)
+						continue;
+				}
 
 				omp_constructs.push_back(construct_single_leave);
 
@@ -1029,8 +1175,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		construct_creation.time = ti->ti_creation->timestamp;
 		construct_creation.ptr.ti = ti;
 
-		if(construct_creation.time < measurement_start || construct_creation.time > measurement_end)
-			continue;
+		if(measurement_intervals.size() > 0){
+			// check if within one of the intervals
+			bool process_construct = false;
+			
+			for(auto interval_pair : measurement_intervals){
+				if(construct_creation.time >= interval_pair.first && construct_creation.time <= interval_pair.second){
+					process_construct = true;
+					break;
+				}
+				if(construct_creation.time < interval_pair.first)
+					break;
+			}
+			
+			if(!process_construct)
+				continue;
+		}
 
 		omp_constructs.push_back(construct_creation);
 
@@ -1040,8 +1200,22 @@ std::vector<struct Fuse::Aftermath_omp_construct> Fuse::Trace_aftermath_legacy::
 		construct_part_end.time = ti->ti_finish->timestamp;
 		construct_part_end.ptr.ti = ti;
 
-		if(construct_part_end.time < measurement_start || construct_part_end.time > measurement_end)
-			continue;
+		if(measurement_intervals.size() > 0){
+			// check if within one of the intervals
+			bool process_construct = false;
+			
+			for(auto interval_pair : measurement_intervals){
+				if(construct_part_end.time >= interval_pair.first && construct_part_end.time <= interval_pair.second){
+					process_construct = true;
+					break;
+				}
+				if(construct_part_end.time < interval_pair.first)
+					break;
+			}
+			
+			if(!process_construct)
+				continue;
+		}
 
 		omp_constructs.push_back(construct_part_end);
 
@@ -1875,7 +2049,9 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 
 		auto instance = instance_iter.second.first;
 		
-		auto iteration_space_size = instance_iter.first->iter_end - instance_iter.first->iter_start;
+		//auto iteration_space_size = instance_iter.first->iter_end - instance_iter.first->iter_start;
+		auto iteration_space_size = instance_iter.first->for_instance->iter_end - instance_iter.first->for_instance->iter_start;
+		iteration_space_size += 1; // inclusive of lower bound
 
 		// Record size of the iteration space
 		Fuse::Trace::profile.add_event("iteration_space_size");
