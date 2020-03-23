@@ -1,6 +1,20 @@
 #ifndef FUSE_TRACE_AFTERMATH_LEGACY_H
 #define FUSE_TRACE_AFTERMATH_LEGACY_H
 
+/*
+ * 	As there are different versions of the OpenStream and OpenMP aftermath (legacy) trace files,
+ *  the parsing code needs to agree with the trace file format
+ * 	Therefore we have multiple preprocessor options that enable the different parts of the trace:
+ * 	
+ *  OMP_LABELLING_DS_ENABLED
+ *  OS_GPU_ENABLED
+ *  OS_NUMA_DIST_ENABLED
+ *  SYSCALL_ENABLED
+ *  
+ * 	If any of these are performed by the runtime, then they must be enabled in the aftermath install,
+ *  and they must also be enabled here 
+ */
+
 #include "fuse_types.h"
 #include "trace.h"
 
