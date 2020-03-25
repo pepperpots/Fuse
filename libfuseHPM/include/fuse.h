@@ -52,7 +52,8 @@ namespace Fuse {
 		Fuse::Target& target,
 		std::vector<Fuse::Strategy> strategies,
 		std::vector<unsigned int> repeat_indexes,
-		Fuse::Accuracy_metric metric
+		Fuse::Accuracy_metric metric,
+		bool weighted_epd = true
 	);
 
 	void calculate_calibration_tmds(

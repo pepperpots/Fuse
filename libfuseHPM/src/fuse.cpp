@@ -378,7 +378,8 @@ void Fuse::analyse_sequence_combinations(
 		Fuse::Target& target,
 		std::vector<Fuse::Strategy> strategies,
 		std::vector<unsigned int> repeat_indexes,
-		Fuse::Accuracy_metric metric){
+		Fuse::Accuracy_metric metric,
+		bool weighted_epd){
 
 	if(Fuse::Config::lazy_load_references == false)
 		target.load_reference_distributions();
@@ -501,11 +502,14 @@ void Fuse::analyse_sequence_combinations(
 
 					double calibrated_tmd = symbol_pair.second / calibration_tmd;
 					calibrated_tmds_per_symbol.push_back(calibrated_tmd);
-					weights_per_symbol.push_back(weight);
+
+					if(weighted_epd)
+						weights_per_symbol.push_back(weight);
 
 				}
 
 				// Apply a weighted average across symbols
+				// If weights_per_symbol is empty, then the standard geometric mean will be calculated
 				double calibrated_tmd_wrt_pair = Fuse::calculate_weighted_geometric_mean(
 					calibrated_tmds_per_symbol,
 					weights_per_symbol
