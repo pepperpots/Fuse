@@ -411,7 +411,7 @@ void Fuse::Trace_aftermath_legacy::update_data_accesses(
 
 					// Add the communication data to the instance
 					std::stringstream ss;
-#ifdef OS_NUMA_DIST_ENABLED
+#if defined OS_NUMA_DIST_ENABLED && OS_NUMA_DIST_ENABLED
 					ss << "data_read_" << ce->numa_dist << "_hops";
 #else
 					ss << "data_read";
@@ -439,7 +439,7 @@ void Fuse::Trace_aftermath_legacy::update_data_accesses(
 					}
 
 					std::stringstream ss;
-#ifdef OS_NUMA_DIST_ENABLED
+#if defined OS_NUMA_DIST_ENABLED && OS_NUMA_DIST_ENABLED
 					ss << "data_write_" << ce->numa_dist << "_hops";
 #else
 					ss << "data_write";
@@ -548,7 +548,7 @@ void Fuse::Trace_aftermath_legacy::process_openstream_instance_start(
 	my_instance->symbol = symbol;
 	my_instance->cpu = se->event_set->cpu;
 	my_instance->start = se->time;
-#ifdef OS_GPU_ENABLED
+#if defined OS_GPU_ENABLED && OS_GPU_ENABLED
 	my_instance->is_gpu_eligible = se->what->is_gpu_eligible;
 #else
 	my_instance->is_gpu_eligible = 0;
@@ -623,7 +623,7 @@ void Fuse::Trace_aftermath_legacy::process_next_openstream_single_event(
 	if(!(se->type == SINGLE_TYPE_TCREATE ||
 			se->type == SINGLE_TYPE_TEXEC_START ||
 			se->type == SINGLE_TYPE_TEXEC_END
-#ifdef SYSCALL_ENABLED
+#if defined SYSCALL_ENABLED && SYSCALL_ENABLED
 			|| se->type == SINGLE_TYPE_SYSCALL
 #endif
 			)){
@@ -675,7 +675,7 @@ void Fuse::Trace_aftermath_legacy::process_next_openstream_single_event(
 
 			break;
 		}
-#if SYSCALL_ENABLED
+#if defined SYSCALL_ENABLED && SYSCALL_ENABLED
 		case SINGLE_TYPE_SYSCALL: {
 
 			spdlog::trace("Processing an OpenStream SYSCALL on cpu {} at timestamp {}", se->event_set->cpu, se->time);
@@ -1264,7 +1264,7 @@ void Fuse::Trace_aftermath_legacy::parse_openmp_instances(struct multi_event_set
 		syscalls_by_cpu.push_back(constructs);
 	}
 
-#if SYSCALL_ENABLED
+#if defined SYSCALL_ENABLED && SYSCALL_ENABLED
 	for(struct event_set* es = &mes->sets[0]; es < &mes->sets[mes->num_sets]; es++){
 		for(unsigned int idx = 0; idx < es->num_single_events; idx++){
 			if(es->single_events[idx].type == SINGLE_TYPE_SYSCALL){
@@ -2151,7 +2151,7 @@ void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
 
 }
 
-#if SYSCALL_ENABLED
+#if defined SYSCALL_ENABLED && SYSCALL_ENABLED
 void Fuse::Trace_aftermath_legacy::process_openmp_syscalls(
 		Fuse::Instance_p instance,
 		std::vector<Fuse::Aftermath_omp_construct> syscalls,

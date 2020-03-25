@@ -28,6 +28,18 @@ set(lib_SOURCES
 
 if(AFTERMATH_LEGACY)
 
+	# The Aftermath legacy format varies, so these definitions allow user to specify what's included
+	# If not set, we assume the trace includes the data structures
+	if(NOT DEFINED OS_NUMA_DIST_ENABLED)
+	add_definitions(-DOS_NUMA_DIST_ENABLED=1)
+	endif()
+	if(NOT DEFINED OS_GPU_ENABLED)
+	add_definitions(-DOS_GPU_ENABLED=1)
+	endif()
+	if(NOT DEFINED SYSCALL_ENABLED)
+	add_definitions(-DSYSCALL_ENABLED=1)
+	endif()
+
 	add_definitions(-DAFTERMATH_LEGACY)
 	set(lib_SOURCES ${lib_SOURCES} src/trace_aftermath_legacy.cpp)
 
