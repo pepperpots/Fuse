@@ -362,7 +362,7 @@ namespace Fuse {
 					future_context_stack_by_cpu
 			);
 
-			void Fuse::Trace_aftermath_legacy::process_openmp_instance_parts(
+			void process_openmp_instance_parts(
 				struct multi_event_set* mes,
 				std::vector<std::vector<Fuse::Aftermath_omp_construct> > syscalls_by_cpu,
 				std::map<struct omp_for_chunk_set*,

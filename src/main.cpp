@@ -228,6 +228,11 @@ void run_main_options(const cxxopts::ParseResult& options_parse_result){
 	if(filter_to_events){
 		fuse_target.set_filtered_events(fuse_target.get_target_events());
 	}
+	
+	if(options_parse_result.count("generate_bc_sequence")){
+		spdlog::warn("Generating a BC sequence via the branch-and-bound heuristic algorithm may take a (very) long time!");
+		Fuse::generate_bc_sequence(fuse_target);
+	}
 
 	if(options_parse_result.count("execute_references")){
 		unsigned int number_of_executions = options_parse_result["execute_references"].as<unsigned int>();

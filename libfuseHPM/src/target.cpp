@@ -1,4 +1,5 @@
 #include "target.h"
+#include "analysis.h"
 #include "config.h"
 #include "fuse.h"
 #include "instance.h"
@@ -32,9 +33,14 @@ void Fuse::Target::parse_json_mandatory(nlohmann::json& j){
 	this->papi_directory = j["papi_directory"];
 	this->results_directory = j["results_directory"];
 
-	/* Hard-coded directories */
+	/* Hard-coded files */
 
-	this->statistics_filename = this->references_directory + "/event_statistics.csv";
+	this->statistics_filename = "event_statistics.csv";
+	this->pairwise_mi_filename = "pairwise_mi_values.csv";
+	this->sequence_generator_profile_mappings_filename = "profiled_event_sets.csv";
+	this->sequence_generator_combination_mappings_filename = "combinations.csv";
+	this->sequence_generator_tracefiles_directory = "tracefiles";
+	this->sequence_generator_combined_profiles_directory = "combined_profiles";
 	this->logs_directory = "logs";
 
 }
@@ -69,6 +75,10 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 		}
 	}
 
+	this->sequence_generation_directory = "sequence_generation";
+	if(j.count("sequence_generation_directory"))
+		this->sequence_generation_directory = j["sequence_generation_directory"];
+	
 	this->num_reference_repeats = 0;
 	if(j.count("num_reference_repeats"))
 		this->num_reference_repeats = j["num_reference_repeats"];
@@ -180,6 +190,7 @@ void Fuse::Target::parse_json_optional(nlohmann::json& j){
 Fuse::Target::Target(std::string target_dir):
 			target_directory(target_dir),
 			calibrations_loaded(false),
+			pairwise_mi_loaded(false),
 			modified(false)
 		{
 
@@ -233,6 +244,7 @@ void Fuse::Target::generate_json_mandatory(nlohmann::json& j){
 	j["combinations_directory"] = this->combinations_directory;
 	j["results_directory"] = this->results_directory;
 	j["papi_directory"] = this->papi_directory;
+	j["sequence_generation_directory"] = this->sequence_generation_directory;
 
 	j["target_events"] = this->target_events;
 
@@ -259,7 +271,7 @@ void Fuse::Target::generate_json_optional(nlohmann::json& j){
 
 		j["combined_indexes"] = strat_json;
 	}
-
+	
 	if(this->num_reference_repeats > 0)
 		j["num_reference_repeats"] = this->num_reference_repeats;
 
@@ -347,6 +359,10 @@ void Fuse::Target::check_or_create_directories(){
 	Fuse::Util::check_or_create_directory(this->get_references_directory());
 	Fuse::Util::check_or_create_directory(this->get_tracefiles_directory());
 	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->combinations_directory);
+	Fuse::Util::check_or_create_directory(this->target_directory + "/" + this->sequence_generation_directory);
+
+	Fuse::Util::check_or_create_directory(this->get_sequence_generation_tracefiles_directory());
+	Fuse::Util::check_or_create_directory(this->get_sequence_generation_combined_profiles_directory());
 	Fuse::Util::check_or_create_directory(this->get_logs_directory());
 
 	bool exists = Fuse::Util::check_file_existance(this->binary_directory + "/" + this->binary);
@@ -365,6 +381,10 @@ void Fuse::Target::check_or_create_directories(){
 
 std::string Fuse::Target::get_logs_directory(){
 	return (this->target_directory + "/" + this->logs_directory);
+}
+
+std::string Fuse::Target::get_papi_directory(){
+	return this->papi_directory;
 }
 
 std::string Fuse::Target::get_tracefiles_directory(){
@@ -431,6 +451,10 @@ Fuse::Combination_sequence Fuse::Target::get_sequence(bool minimal){
 		return this->minimal_sequence;
 	else
 		return this->bc_sequence;
+}
+
+void Fuse::Target::set_combination_sequence(Fuse::Combination_sequence sequence){
+	this->bc_sequence = sequence;
 }
 
 Fuse::Event_set Fuse::Target::get_target_events(){
@@ -687,8 +711,7 @@ bool Fuse::Target::combined_profile_exists(Fuse::Strategy strategy, unsigned int
 
 void Fuse::Target::initialize_statistics(){
 
-	std::string saved_statistics_filename = this->target_directory + "/event_statistics.csv";
-	Fuse::Statistics_p stats(new Fuse::Statistics(saved_statistics_filename));
+	Fuse::Statistics_p stats(new Fuse::Statistics(this->target_directory + "/" + this->statistics_filename));
 	stats->load();
 	this->statistics = stats;
 
@@ -920,31 +943,32 @@ std::vector<std::vector<int64_t> > Fuse::Target::get_or_load_reference_distribut
 
 	std::map<Fuse::Symbol, std::vector<std::vector<int64_t > > > reference_distribution_per_symbol;
 
+	bool was_loaded = true; // by the end of this function, this bool is set to false if we had to load it from disk
 	auto reference_set_idx = this->get_reference_set_index_for_events(events);
 
-	auto reference_set_iter = this->loaded_reference_distributions.find(reference_set_idx);
+	#pragma omp critical (target_references)
+	{
+		auto reference_set_iter = this->loaded_reference_distributions.find(reference_set_idx);
 
-	// Load it if it is not loaded
-	bool was_loaded = true;
-	if(reference_set_iter == this->loaded_reference_distributions.end()){
-
-		reference_distribution_per_symbol = this->load_reference_distribution_from_disk(reference_set_idx, repeat_idx);
-		was_loaded = false;
-
-	} else {
-
-		auto repeat_iter = reference_set_iter->second.find(repeat_idx);
-		if(repeat_iter == reference_set_iter->second.end()){
+		// Load it if it is not loaded
+		if(reference_set_iter == this->loaded_reference_distributions.end()){
 
 			reference_distribution_per_symbol = this->load_reference_distribution_from_disk(reference_set_idx, repeat_idx);
 			was_loaded = false;
 
 		} else {
 
-			reference_distribution_per_symbol = repeat_iter->second;
+			auto repeat_iter = reference_set_iter->second.find(repeat_idx);
+			if(repeat_iter == reference_set_iter->second.end()){
 
+				reference_distribution_per_symbol = this->load_reference_distribution_from_disk(reference_set_idx, repeat_idx);
+				was_loaded = false;
+
+			} else {
+
+				reference_distribution_per_symbol = repeat_iter->second;
+			}
 		}
-
 	}
 
 	// Now filter for symbols
@@ -983,8 +1007,11 @@ std::pair<double, double> Fuse::Target::get_or_load_calibration_tmd(
 
 	auto reference_idx = this->get_reference_pair_index_for_event_pair(events);
 
-	if(this->calibrations_loaded == false){
-		this->calibration_tmds = this->load_reference_calibrations_per_symbol();
+	#pragma omp critical (target_calibrations)
+	{
+		if(this->calibrations_loaded == false){
+			this->calibration_tmds = this->load_reference_calibrations_per_symbol();
+		}
 	}
 
 	auto symbol_iter = this->calibration_tmds.find(symbol);
@@ -1116,7 +1143,7 @@ void Fuse::Target::save_accuracy_results_to_disk(
 		const std::map<unsigned int, double> tmd_per_reference_pair
 		){
 
-	spdlog::trace("Storing {} accuracy reuslts for strategy '{}' repeat {}.",
+	spdlog::debug("Storing {} accuracy reuslts for strategy '{}' repeat {}.",
 		Fuse::convert_metric_to_string(metric),
 		Fuse::convert_strategy_to_string(strategy),
 		repeat_idx
@@ -1403,7 +1430,13 @@ Fuse::Profile_p Fuse::Target::get_or_load_combined_profile(
 	auto strategy_iter = this->loaded_combined_profiles.find(strategy);
 	if(strategy_iter == this->loaded_combined_profiles.end()){
 
-		profile = this->load_combined_profile_from_disk(strategy, repeat_idx);
+		std::string combined_instances_filename = this->get_combination_filename(strategy, repeat_idx);
+		profile = this->load_combined_profile_from_disk(combined_instances_filename);
+	
+		spdlog::debug("Loaded combined profile for strategy {} and repeat {} from disk.",
+			Fuse::convert_strategy_to_string(strategy),
+			repeat_idx
+		);
 
 		std::map<unsigned int, Fuse::Profile_p> profiles;
 		profiles.insert(std::make_pair(repeat_idx, profile));
@@ -1415,7 +1448,13 @@ Fuse::Profile_p Fuse::Target::get_or_load_combined_profile(
 		auto repeat_iter = strategy_iter->second.find(repeat_idx);
 		if(repeat_iter == strategy_iter->second.end()){
 
-			profile = this->load_combined_profile_from_disk(strategy, repeat_idx);
+			std::string combined_instances_filename = this->get_combination_filename(strategy, repeat_idx);
+			profile = this->load_combined_profile_from_disk(combined_instances_filename);
+		
+			spdlog::debug("Loaded combined profile for strategy {} and repeat {} from disk.",
+				Fuse::convert_strategy_to_string(strategy),
+				repeat_idx
+			);
 
 			strategy_iter->second.insert(std::make_pair(repeat_idx, profile));
 
@@ -1431,18 +1470,172 @@ Fuse::Profile_p Fuse::Target::get_or_load_combined_profile(
 
 }
 
-Fuse::Profile_p Fuse::Target::load_combined_profile_from_disk(
-		Fuse::Strategy strategy,
-		unsigned int repeat_idx
+std::map<unsigned int, double> Fuse::Target::load_pairwise_mis_from_disk(){
+
+	std::map<unsigned int, double> pairwise_values;
+
+	auto filename = this->get_sequence_generation_pairwise_mi_filename();
+
+	auto file_stream = std::ifstream(filename);
+	if(file_stream.is_open() == false)
+		return pairwise_values;
+
+	std::string header;
+	file_stream >> header;
+
+	std::string line;
+	while(file_stream >> line){
+
+		auto split_line = Fuse::Util::split_string_to_vector(line, ',');
+
+		// There is no conversion to unsigned int, it must be caused from unsigned long!
+		unsigned int reference_idx = static_cast<unsigned int>(std::stoul(split_line.at(0)));
+		double mi = std::stod(split_line.at(1));
+
+		auto reference_iter = pairwise_values.find(reference_idx);
+		if(reference_iter == pairwise_values.end()){
+
+			pairwise_values.insert(std::make_pair(reference_idx, mi));
+
+		} else {
+
+			spdlog::warn("When loading pairwise MI from {}, inserted an MI for pair {} that already exists.",
+				filename,
+				reference_idx
+			);
+
+			pairwise_values[reference_idx] = mi; // Will replace if exists
+
+		}
+
+	}
+
+	file_stream.close();
+	
+	this->pairwise_mi_loaded = true;
+	return pairwise_values;
+
+}
+
+std::string Fuse::Target::get_sequence_generation_pairwise_mi_filename(){
+	return this->target_directory
+		+ "/" + this->sequence_generation_directory
+		+ "/" + this->pairwise_mi_filename;
+}
+
+std::string Fuse::Target::get_sequence_generation_profile_mappings_filename(){
+	return this->target_directory
+		+ "/" + this->sequence_generation_directory
+		+ "/" + this->sequence_generator_profile_mappings_filename;
+}
+
+std::string Fuse::Target::get_sequence_generation_combination_mappings_filename(){
+	return this->target_directory
+		+ "/" + this->sequence_generation_directory
+		+ "/" + this->sequence_generator_combination_mappings_filename;
+}
+
+std::string Fuse::Target::get_sequence_generation_tracefiles_directory(){
+	return this->target_directory
+		+ "/" + this->sequence_generation_directory
+		+ "/" + this->sequence_generator_tracefiles_directory;
+}
+
+std::string Fuse::Target::get_sequence_generation_combined_profiles_directory(){
+	return this->target_directory
+		+ "/" + this->sequence_generation_directory
+		+ "/" + this->sequence_generator_combined_profiles_directory;
+}
+
+void Fuse::Target::save_pairwise_mis_to_disk(std::map<unsigned int, double> pairwise_mis){
+
+	auto filename = this->get_sequence_generation_pairwise_mi_filename();
+
+	spdlog::debug("Saving pairwise MI reuslts for {} event pairs to {}.",
+		pairwise_mis.size(),
+		filename
+	);
+
+	auto file_stream = std::ofstream(filename);
+	if(file_stream.is_open() == false)
+		throw std::runtime_error(fmt::format("Unable to open {} to store calculated pairwise MI.", filename));
+
+	std::string header("reference_pair_index,mutual_information");
+	file_stream << header << std::endl;
+
+	for(auto result : pairwise_mis){
+		file_stream << result.first << "," << result.second << std::endl;
+	}
+
+	file_stream.close();
+
+}
+
+std::map<unsigned int, double> Fuse::Target::get_or_load_pairwise_mis(
+		std::vector<Fuse::Event_set> reference_pairs
 		){
 
-	std::string combined_instances_filename = this->get_combination_filename(strategy, repeat_idx);
+	// try to load MI for each pair
+	if(this->pairwise_mi_loaded == false)
+		this->loaded_pairwise_mis = this->load_pairwise_mis_from_disk();
+	
+	if(this->pairwise_mi_loaded == false){
 
-	Fuse::Profile_p combined_profile(new Fuse::Execution_profile(combined_instances_filename, this->get_target_binary()));
+		// If they are still not loaded, then they don't exist and we need to calculate them
+			
+		spdlog::info("Calculating pairwise MI values for {} event pairs.", reference_pairs.size());
 
-	auto file_stream = std::ifstream(combined_instances_filename);
+		unsigned int repeat_index = 0; // this is the repeat reference index that we'll use to calculate MI
+
+		#pragma omp parallel for
+		for(unsigned int event_pair_idx = 0; event_pair_idx < reference_pairs.size(); event_pair_idx++){
+			
+			auto event_pair = reference_pairs.at(event_pair_idx);
+
+			// for this pair, find the reference execution that I should load
+			auto reference_execution_index = this->get_reference_set_index_for_events(event_pair);
+
+			std::vector<Fuse::Symbol> symbols; // Empty to return a joint distribution
+			std::vector<std::vector<int64_t> > reference_values = this->get_or_load_reference_distribution(
+				event_pair,
+				repeat_index,
+				symbols
+			);
+
+			double mi = Fuse::Analysis::calculate_normalised_mutual_information(reference_values);
+
+			#pragma omp critical
+			this->loaded_pairwise_mis.insert(std::make_pair(event_pair_idx, mi));
+
+		}
+
+		this->pairwise_mi_loaded = true;
+
+		this->save_pairwise_mis_to_disk(this->loaded_pairwise_mis);
+		
+	} else {
+
+		if(this->loaded_pairwise_mis.size() != reference_pairs.size()){
+			spdlog::error("Loading from disk, found only {} pairwise MI values, but expected {}.",
+				this->loaded_pairwise_mis.size(),
+				reference_pairs.size());
+		}
+
+	}
+
+	return this->loaded_pairwise_mis;
+
+}
+
+Fuse::Profile_p Fuse::Target::load_combined_profile_from_disk(
+		std::string filename
+		){
+
+	Fuse::Profile_p combined_profile(new Fuse::Execution_profile(filename, this->get_target_binary()));
+
+	auto file_stream = std::ifstream(filename);
 	if(file_stream.is_open() == false)
-		throw std::runtime_error(fmt::format("Cannot open '{}' to load a combined profile.", combined_instances_filename));
+		throw std::runtime_error(fmt::format("Cannot open '{}' to load a combined profile.", filename));
 
 	std::string header;
 	file_stream >> header;
@@ -1499,10 +1692,7 @@ Fuse::Profile_p Fuse::Target::load_combined_profile_from_disk(
 
 	}
 
-	spdlog::debug("Loaded combined profile for strategy {} and repeat {} from disk.",
-		Fuse::convert_strategy_to_string(strategy),
-		repeat_idx
-	);
+	spdlog::trace("Loaded combined profile from {}.", filename);
 
 	return combined_profile;
 

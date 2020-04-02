@@ -8,3 +8,4 @@ unsigned int Fuse::Config::max_execution_attempts = 5;
 bool Fuse::Config::lazy_load_references = false;
 unsigned int Fuse::Config::tmd_bin_count = 10;
 bool Fuse::Config::calculate_per_workfunction_tmds = true;
+bool Fuse::Config::weighted_tmd = true;

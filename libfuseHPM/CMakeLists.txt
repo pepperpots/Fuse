@@ -24,6 +24,7 @@ set(lib_SOURCES
 	src/combination.cpp
 	src/statistics.cpp
 	src/analysis.cpp
+	src/sequence_generator.cpp
 )
 
 if(AFTERMATH_LEGACY)
@@ -64,6 +65,24 @@ add_subdirectory(external/json)
 unset(BUILD_TESTING)
 unset(JSON_MultipleHeaders)
 
+# MIToolbox has a custom Makefile but no cmake build
+set(MITOOLBOX_LIB ${CMAKE_CURRENT_SOURCE_DIR}/external/MIToolbox/libMIToolbox.so)
+set(MITOOLBOX_INC ${CMAKE_CURRENT_SOURCE_DIR}/external/MIToolbox/include)
+add_custom_command(OUTPUT ${MITOOLBOX_LIB}
+	COMMAND make x64
+	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/MIToolbox
+)
+
+add_custom_target(MIToolbox_target DEPENDS ${MITOOLBOX_LIB})
+
+add_library(MIToolbox STATIC IMPORTED GLOBAL)
+add_dependencies(MIToolbox MIToolbox_target)
+
+set_target_properties(MIToolbox
+	PROPERTIES
+	IMPORTED_LOCATION ${MITOOLBOX_LIB}
+  INTERFACE_INCLUDE_DIRECTORIES "${MITOOLBOX_INC}")
+
 find_library(GMP_LIB gmp REQUIRED)
 if(NOT GMP_LIB)
 	message(FATAL_ERROR "Cannot find libgmp")
@@ -78,9 +97,17 @@ target_include_directories(fuseHPM PRIVATE
 	external/fast_emd
 	external/spdlog/include
 	external/json/include
+	external/MIToolbox/include
 	${AFTERMATH_INCLUDE_DIR}
 	include
 )
 
-target_link_libraries(fuseHPM spdlog nlohmann_json ${AFTERMATH_LIB} ${GMP_LIB} ${MPFR_LIB})
+target_link_libraries(fuseHPM
+	MIToolbox
+	spdlog
+	nlohmann_json
+	${AFTERMATH_LIB}
+	${GMP_LIB}
+	${MPFR_LIB}
+)
 

@@ -6,6 +6,7 @@
 #include "profiling.h"
 #include "instance.h"
 #include "statistics.h"
+#include "sequence_generator.h"
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
@@ -378,8 +379,7 @@ void Fuse::analyse_sequence_combinations(
 		Fuse::Target& target,
 		std::vector<Fuse::Strategy> strategies,
 		std::vector<unsigned int> repeat_indexes,
-		Fuse::Accuracy_metric metric,
-		bool weighted_epd){
+		Fuse::Accuracy_metric metric){
 
 	if(Fuse::Config::lazy_load_references == false)
 		target.load_reference_distributions();
@@ -422,98 +422,14 @@ void Fuse::analyse_sequence_combinations(
 				*  Then I'll do a weighted average across the symbols, to give a final TMD value for this pair
 				*/
 
-				std::map<Fuse::Symbol, double> uncalibrated_tmd_per_symbol;
-
-				for(auto symbol : symbols){
-
-					std::vector<double> uncalibrated_tmds_per_reference_repeat;
-					uncalibrated_tmds_per_reference_repeat.reserve(reference_repeats_list.size());
-
-					std::vector<Fuse::Symbol> constrained_symbols;
-					if(symbol != "all_symbols")
-						constrained_symbols = {symbol};
-
-					std::vector<std::pair<int64_t, int64_t> > bounds_per_event;
-					for(auto event : reference_pair)
-						bounds_per_event.push_back(target.get_statistics()->get_bounds(event, symbol));
-
-					// We are guaranteed one if no exception
-					std::map<std::string, std::vector<std::vector<int64_t> > > distribution_per_symbol =
-						profile->get_value_distribution(
-							reference_pair,
-							false,
-							constrained_symbols
-						);
-					auto distribution = distribution_per_symbol.begin()->second;
-
-					for(auto reference_repeat_idx : reference_repeats_list){
-
-						auto reference_distribution = target.get_or_load_reference_distribution(
-							reference_pair,
-							reference_repeat_idx,
-							constrained_symbols
-						);
-
-						auto uncalibrated_tmd = Fuse::Analysis::calculate_uncalibrated_tmd(
-							reference_distribution,
-							distribution,
-							bounds_per_event,
-							Config::tmd_bin_count
-						);
-
-						uncalibrated_tmds_per_reference_repeat.push_back(uncalibrated_tmd);
-
-					}
-
-					double median_uncalibrated_tmd = Fuse::calculate_median_from_values(
-						uncalibrated_tmds_per_reference_repeat
-					);
-
-					uncalibrated_tmd_per_symbol.insert(std::make_pair(symbol, median_uncalibrated_tmd));
-
-				}
-
-				// Now calibrate and average the tmds across symbol to get the calibrated tmd w.r.t reference pair
-				std::vector<double> calibrated_tmds_per_symbol;
-				std::vector<double> weights_per_symbol;
-				calibrated_tmds_per_symbol.reserve(uncalibrated_tmd_per_symbol.size());
-				weights_per_symbol.reserve(uncalibrated_tmd_per_symbol.size());
-
-				for(auto symbol_pair : uncalibrated_tmd_per_symbol){
-
-					auto calibration_tmd_pair = target.get_or_load_calibration_tmd(reference_pair, symbol_pair.first);
-					auto calibration_tmd = calibration_tmd_pair.first;
-					auto weight = calibration_tmd_pair.second;
-
-					if(calibration_tmd == -1.0)
-						throw std::runtime_error(fmt::format(
-							"Cannot find calibration tmd for reference pair {} and symbol '{}'",
-							Fuse::Util::vector_to_string(reference_pair),
-							symbol_pair.first)
-						);
-
-					if(calibration_tmd == 0.0){
-						spdlog::warn("Calibration TMD for reference pair {} and symbol '{}' was 0.0.",
-							Fuse::Util::vector_to_string(reference_pair),
-							symbol_pair.first
-						);
-						calibration_tmd = 1.0; // Let it be equal to the uncalibrated TMD in this case
-					}
-
-					double calibrated_tmd = symbol_pair.second / calibration_tmd;
-					calibrated_tmds_per_symbol.push_back(calibrated_tmd);
-
-					if(weighted_epd)
-						weights_per_symbol.push_back(weight);
-
-				}
-
-				// Apply a weighted average across symbols
-				// If weights_per_symbol is empty, then the standard geometric mean will be calculated
-				double calibrated_tmd_wrt_pair = Fuse::calculate_weighted_geometric_mean(
-					calibrated_tmds_per_symbol,
-					weights_per_symbol
-				);
+				double calibrated_tmd_wrt_pair = Fuse::Analysis::calculate_calibrated_tmd_for_pair(
+					target,
+					symbols,
+					reference_pair,
+					profile,
+					reference_repeats_list,
+					Fuse::Config::tmd_bin_count,
+					Fuse::Config::weighted_tmd);
 
 				tmd_per_reference_pair.insert(std::make_pair(pair_idx, calibrated_tmd_wrt_pair));
 				pair_idx++;
@@ -538,11 +454,35 @@ void Fuse::analyse_sequence_combinations(
 
 		}
 
-
-
 	}
 
 	spdlog::info("Finished analysing the accuracy of the combined profiles.");
+
+}
+
+void Fuse::generate_bc_sequence(
+		Fuse::Target& target
+		){
+
+	std::vector<std::pair<Fuse::Event_set, Fuse::Event_set> > combination_sequence =
+		Fuse::Sequence_generator::generate_bc_sequence(target, 3, 3);
+
+	// Convert to a proper combination sequence
+	Fuse::Combination_sequence sequence;
+	unsigned int next_part_idx = 0;
+	for(auto pair : combination_sequence){
+
+		Fuse::Sequence_part part;
+		part.part_idx = next_part_idx;
+		part.overlapping = pair.first;
+		part.unique = pair.second;
+
+		sequence.push_back(part);
+
+		next_part_idx++;
+	}
+	
+	target.set_combination_sequence(sequence);
 
 }
 
@@ -604,7 +544,7 @@ void Fuse::calculate_calibration_tmds(
 				for(auto event : reference_pair)
 					bounds_per_event.push_back(target.get_statistics()->get_bounds(event, symbol));
 
-				auto tmd = Fuse::Analysis::calculate_uncalibrated_tmd(distribution_one, distribution_two, bounds_per_event, Config::tmd_bin_count);
+				auto tmd = Fuse::Analysis::calculate_uncalibrated_tmd(distribution_one, distribution_two, bounds_per_event, Fuse::Config::tmd_bin_count);
 
 				auto symbol_iter = reference_tmd_per_combination_per_symbol.find(symbol);
 				if(symbol_iter == reference_tmd_per_combination_per_symbol.end()){

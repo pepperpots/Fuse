@@ -13,6 +13,7 @@ namespace Fuse {
 		extern bool lazy_load_references;
 		extern unsigned int tmd_bin_count;
 		extern bool calculate_per_workfunction_tmds;
+		extern bool weighted_tmd;
 
 	}
 

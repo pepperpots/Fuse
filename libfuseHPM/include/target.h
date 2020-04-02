@@ -27,6 +27,15 @@ namespace Fuse {
 			std::string results_directory;
 			std::string statistics_filename;
 
+			std::string sequence_generation_directory;
+
+			std::string pairwise_mi_filename;
+			std::string sequence_generator_profile_mappings_filename;
+			std::string sequence_generator_combination_mappings_filename;
+			std::string sequence_generator_tracefiles_directory;
+			std::string sequence_generator_combined_profiles_directory;
+
+			// Each reference set is actually executed, i.e., multiple reference projections may be taken from the same reference set
 			std::vector<Fuse::Event_set> reference_sets;
 			unsigned int num_reference_repeats;
 
@@ -53,6 +62,10 @@ namespace Fuse {
 			/* Map from repeat index to map of (part index) to (in-memory profile) */
 			std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> > loaded_minimal_sequence_profiles;
 			std::map<unsigned int, std::map<unsigned int, Fuse::Profile_p> > loaded_non_minimal_sequence_profiles;
+			
+			// Map from reference set index to the mutual information between them
+			std::map<unsigned int, double> loaded_pairwise_mis;
+			bool pairwise_mi_loaded; // Indicates if an attempt has already been made to load the pairwise MIs
 
 			std::map<Fuse::Strategy, std::vector<unsigned int> > combined_indexes;
 			std::map<Fuse::Strategy, std::map<unsigned int, Fuse::Profile_p> > loaded_combined_profiles;
@@ -69,6 +82,7 @@ namespace Fuse {
 			Target(std::string target_dir);
 
 			Fuse::Combination_sequence get_sequence(bool minimal);
+			void set_combination_sequence(Fuse::Combination_sequence sequence);
 			unsigned int get_num_sequence_repeats(bool minimal);
 			void increment_num_sequence_repeats(bool minimal);
 
@@ -101,6 +115,20 @@ namespace Fuse {
 				Fuse::Strategy strategy,
 				unsigned int repeat_idx
 			);
+			
+			Fuse::Profile_p load_combined_profile_from_disk(
+				std::string filename
+			);
+
+			std::map<unsigned int, double> get_or_load_pairwise_mis(
+				std::vector<Fuse::Event_set> reference_pairs
+			);
+
+			std::map<unsigned int, double> load_pairwise_mis_from_disk();
+
+			void save_pairwise_mis_to_disk(
+				std::map<unsigned int, double> pairwise_mis
+			);
 
 			bool combined_profile_exists(Fuse::Strategy strategy, unsigned int repeat_idx);
 			unsigned int get_num_combined_profiles(Fuse::Strategy strategy);
@@ -110,9 +138,7 @@ namespace Fuse {
 			std::vector<Fuse::Event_set> get_or_generate_reference_sets();
 			std::vector<Fuse::Event_set> get_reference_pairs();
 			unsigned int get_reference_pair_index_for_event_pair(Fuse::Event_set pair);
-			unsigned int get_reference_set_index_for_events(
-				Fuse::Event_set events
-			);
+			unsigned int get_reference_set_index_for_events(Fuse::Event_set events);
 
 			std::string get_reference_filename_for(
 				unsigned int reference_idx,
@@ -156,6 +182,7 @@ namespace Fuse {
 				std::vector<unsigned int> reference_repeats_to_load = std::vector<unsigned int>()
 			);
 
+			// If symbols is empty, will load all into a joint distribution
 			std::vector<std::vector<int64_t> > get_or_load_reference_distribution(
 				Fuse::Event_set events,
 				unsigned int repeat_idx,
@@ -177,12 +204,18 @@ namespace Fuse {
 			std::string get_target_binary();
 			std::string get_target_args();
 			std::string get_logs_directory();
+			std::string get_papi_directory();
 			std::string get_tracefiles_directory();
 			std::string get_references_directory();
 			std::string get_results_directory();
 			std::string get_results_filename(Fuse::Accuracy_metric metric);
 			std::string get_combination_filename(Fuse::Strategy strategy, unsigned int repeat_idx);
 			std::string get_calibration_tmds_filename();
+			std::string get_sequence_generation_tracefiles_directory();
+			std::string get_sequence_generation_combined_profiles_directory();
+			std::string get_sequence_generation_pairwise_mi_filename();
+			std::string get_sequence_generation_profile_mappings_filename();
+			std::string get_sequence_generation_combination_mappings_filename();
 			void save();
 
 		private:
@@ -193,11 +226,6 @@ namespace Fuse {
 
 			std::map<Fuse::Symbol, std::vector<std::vector<int64_t> > > load_reference_distribution_from_disk(
 				unsigned int reference_idx,
-				unsigned int repeat_idx
-			);
-
-			Fuse::Profile_p load_combined_profile_from_disk(
-				Fuse::Strategy strategy,
 				unsigned int repeat_idx
 			);
 
